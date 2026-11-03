@@ -29,5 +29,6 @@ pub use key_value::KeyValue;
 pub use method::Method;
 pub use request::Request;
 pub use response::{
-    ConsoleLevel, ConsoleLine, ResolvedBody, ResolvedField, ResolvedRequest, Response, TestResult,
+    ConsoleLevel, ConsoleLine, ResolvedBody, ResolvedField, ResolvedRequest, Response, ScriptStage,
+    TestResult,
 };

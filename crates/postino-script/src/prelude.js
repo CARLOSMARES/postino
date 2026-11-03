@@ -192,13 +192,29 @@
         }
     }
 
+    // The line of the user script that called `console.*`: the first stack frame in the script
+    // itself (`pre-script` or `post-script`, the names `quickjs_engine.rs` evaluates it under).
+    function callerLine() {
+        try {
+            var match = /(?:pre|post)-script:(\d+)/.exec(new Error().stack || "");
+            return match ? Number(match[1]) : null;
+        } catch (error) {
+            return null;
+        }
+    }
+
     function makeLog(level) {
         return function () {
             var parts = [];
             for (var i = 0; i < arguments.length; i++) {
                 parts.push(describeForLog(arguments[i]));
             }
-            consoleLines.push({ level: level, text: parts.join(" ") });
+            consoleLines.push({
+                level: level,
+                text: parts.join(" "),
+                time: Date.now(),
+                line: callerLine(),
+            });
         };
     }
 

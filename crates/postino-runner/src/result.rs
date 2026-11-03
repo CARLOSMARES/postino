@@ -1,6 +1,8 @@
 //! [`RunResult`], everything the UI needs to render the outcome of a [`crate::Runner::run`]
 //! call, and [`FailedStage`], which pipeline stage failed, if any.
 
+use std::time::SystemTime;
+
 use postino_core::{ConsoleLine, ResolvedRequest, Response, TemplateWarning, TestResult};
 use postino_http::HttpError;
 use postino_script::ScriptError;
@@ -27,6 +29,12 @@ pub struct RunResult {
     /// Which pipeline stage failed, if any. `None` means the request ran to completion: it was
     /// sent and, if there was a post script, it ran without raising an uncaught exception.
     pub failed_stage: Option<FailedStage>,
+    /// When the run started, before the pre script.
+    pub started_at: SystemTime,
+    /// When the request was handed to the HTTP client. `None` if it was never sent.
+    pub sent_at: Option<SystemTime>,
+    /// When the run ended, after the post script or the stage that failed.
+    pub finished_at: SystemTime,
 }
 
 /// The pipeline stage that stopped a run from completing normally.

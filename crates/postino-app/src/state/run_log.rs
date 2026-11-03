@@ -103,6 +103,9 @@ mod tests {
             console: Vec::new(),
             warnings: Vec::new(),
             failed_stage: None,
+            started_at: std::time::UNIX_EPOCH,
+            sent_at: None,
+            finished_at: std::time::UNIX_EPOCH,
         }
     }
 
