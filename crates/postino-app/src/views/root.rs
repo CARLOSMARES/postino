@@ -135,6 +135,13 @@ pub struct AppView {
     /// completion. Built on the background thread that sent the request; absent when the body
     /// is not JSON or is too big.
     pub(crate) response_shapes: HashMap<String, Arc<JsonShape>>,
+    /// The Console tab's timeline of each tab's last response, built on the background thread
+    /// that sent the request (#194).
+    pub(crate) response_consoles: HashMap<String, Arc<state::console::ConsoleTimeline>>,
+    /// What the user changed in the Console tab (filter, open tree nodes) of the shown response.
+    pub(crate) console_view: state::console::ConsoleView,
+    /// The Console tab's text filter.
+    pub(crate) console_filter_input: Entity<InputState>,
     /// The script engine every send uses. `Arc` so it is cheap to clone into each background
     /// send task; `QuickJsEngine` needs no per-run state, a fresh QuickJS runtime is created for
     /// every script run (see `postino-script`).
@@ -260,6 +267,19 @@ impl AppView {
         let tree_state = cx.new(|cx| TreeState::new(cx));
         let sidebar_filter_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(t!("shell.sidebar.filter")));
+        let console_filter_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("response.console.filter")));
+        cx.subscribe(
+            &console_filter_input,
+            |view, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let query = input.read(cx).value().to_string();
+                    view.console_view.set_query(&query);
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
         let branch_menu_context = std::rc::Rc::default();
         let branch_menu = crate::views::git::new_branch_menu(
             std::rc::Rc::clone(&branch_menu_context),
@@ -359,6 +379,9 @@ impl AppView {
             responses: HashMap::new(),
             response_generations: Default::default(),
             response_shapes: HashMap::new(),
+            response_consoles: HashMap::new(),
+            console_view: Default::default(),
+            console_filter_input,
             script_engine: Arc::new(QuickJsEngine),
             send_options,
             settings_category: SettingsCategory::default(),
@@ -1027,6 +1050,10 @@ impl AppView {
                 .into_iter()
                 .map(|(key, response)| (state::tree_drop::moved_id(&key, id, new_id), response))
                 .collect();
+            self.response_consoles = std::mem::take(&mut self.response_consoles)
+                .into_iter()
+                .map(|(key, timeline)| (state::tree_drop::moved_id(&key, id, new_id), timeline))
+                .collect();
             self.sidebar_selection.follow_move(id, new_id);
             selected = selected.map(|selected| state::tree_drop::moved_id(&selected, id, new_id));
             self.last_selected_request = self
@@ -1118,9 +1145,11 @@ impl AppView {
         self.commit_input.update(cx, |state, cx| {
             state.set_placeholder(t!("git.commit.placeholder"), window, cx);
         });
-        // The command palette, the response view and the load test tab cache no translated text:
-        // the palette rebuilds its items on every repaint, the other two have no input
-        // placeholder.
+        self.console_filter_input.update(cx, |state, cx| {
+            state.set_placeholder(t!("response.console.filter"), window, cx);
+        });
+        // The command palette and the load test tab cache no translated text: the palette
+        // rebuilds its items on every repaint, the load test tab has no input placeholder.
     }
 
     /// Handles the `Ctrl+Enter` / `Cmd+Enter` key binding (see `main.rs`'s `bind_keys`).

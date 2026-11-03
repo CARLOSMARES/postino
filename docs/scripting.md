@@ -107,7 +107,8 @@ un-negated version would have failed.
 ### `console.log` / `.info` / `.warn` / `.error`
 
 Each call joins its arguments with a single space and appends one line to the run's console
-output (shown in the UI's Console tab), tagged with the level used. A string argument is used as
+output (shown in the UI's Console tab), tagged with the level used, the script (pre or post),
+the time of the call (`Date.now()`) and the script line that made it, read from the stack trace. A string argument is used as
 is; anything else is stringified with `JSON.stringify` when possible, falling back to
 `String(value)`.
 

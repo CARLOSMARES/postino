@@ -36,7 +36,19 @@ description: The Postino response pane: status, time and size, pretty and raw bo
 <p>A failing test does not stop the script: the remaining tests still run. See <a href="scripting.html#writing-tests">writing tests</a>.</p>
 
 <h2>Console</h2>
-<p>One line per <code>console.log()</code>, <code>console.info()</code>, <code>console.warn()</code> or <code>console.error()</code> call, from the pre-request and the post-response scripts, tagged with its level. Objects are printed as JSON.</p>
+<p>The <strong>Console</strong> tab lists everything that happened during the last send, in order. The tab label shows the number of errors, in red, when there are any.</p>
+<ul>
+    <li><strong>Script lines.</strong> One row per <code>console.log()</code>, <code>console.info()</code>, <code>console.warn()</code> or <code>console.error()</code> call, with its time (hours, minutes, seconds and milliseconds, in local time), the script it came from (<code>pre-request</code> or <code>post-response</code>), the text and the script line that logged it, such as <code>post-response.js:4</code>. Objects are printed as JSON. Warnings are amber, errors red.</li>
+    <li><strong>The network entry.</strong> The request as it was sent: time, method, URL, then the status, time and size of the response. Click it to open its detail.</li>
+    <li><strong>Errors.</strong> When a script throws, hits its time or memory limit, or the request cannot be sent, a red row with the error message, and the script line when it is known.</li>
+</ul>
+<p>The detail of the network entry has two views:</p>
+<ul>
+    <li><strong>Tree</strong> shows the <code>request</code> (method, URL, headers, body), the <code>response</code> (status, status text, headers, body), the <code>timings</code> (the total time, in milliseconds) and the <code>environment</code> the request ran with. Only the first level shows at first; click a row to open it, or use <strong>Expand all</strong> and <strong>Collapse</strong>. A JSON body becomes part of the tree, keeping the order of its keys. <strong>Copy</strong> copies the whole tree as JSON.</li>
+    <li><strong>Raw</strong> shows the request and the response as HTTP/1.1 text: the request line, <code>Host</code>, the headers and the body, then the status line, the headers and the body. Headers the HTTP client adds by itself, such as <code>User-Agent</code>, are not listed. <strong>Copy</strong> copies both.</li>
+</ul>
+<p>Bodies larger than 128 KB are left to the <strong>Body</strong> tab: the tree shows their size, and the raw text shows their first 128 KB.</p>
+<p>The bar above the list filters it: <strong>All</strong>, <strong>Network</strong>, <strong>Logs</strong> or <strong>Errors</strong> (script errors plus <code>console.error()</code> lines, with their count), and <strong>Filter console</strong> keeps the rows whose text or URL contains what you type, ignoring case. <strong>Clear</strong> empties the list until the next send.</p>
 ```js
 console.log("received", res.size, "bytes in", res.timeMs, "ms");
 console.warn("rate limit left:", res.headers.get("X-RateLimit-Remaining"));

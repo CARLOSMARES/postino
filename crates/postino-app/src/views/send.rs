@@ -11,6 +11,7 @@ use gpui_kit::*;
 use postino_core::Environment;
 use postino_runner::{Preview, Runner, preview};
 
+use crate::state::console::ConsoleTimeline;
 use crate::state::run_log;
 use crate::state::script_completion::JsonShape;
 
@@ -81,11 +82,14 @@ impl AppView {
             // The actual pipeline (pre script, interpolation, HTTP, post script) runs on a
             // background thread: `Runner::run` blocks on the HTTP call and can run a script for
             // up to 5 seconds, neither of which should stall the UI thread.
-            let (result, session_env, shape) = cx
+            let (result, session_env, shape, console) = cx
                 .background_spawn(async move {
                     let started = Instant::now();
                     let runner = Runner::new(engine, options);
                     let result = runner.run(&request, &environment, &mut session_env);
+                    let environment_name =
+                        Some(environment.name.as_str()).filter(|name| !name.is_empty());
+                    let console = Arc::new(ConsoleTimeline::build(&result, environment_name));
                     log::info!("{}", run_log::summary(&result, started.elapsed()));
                     log::debug!("{}", run_log::details(&result));
                     // Parsed here, once, so completing `res.json().` never touches the body.
@@ -95,7 +99,7 @@ impl AppView {
                         .and_then(|response| std::str::from_utf8(&response.body).ok())
                         .and_then(JsonShape::from_body)
                         .map(Arc::new);
-                    (result, session_env, shape)
+                    (result, session_env, shape, console)
                 })
                 .await;
             // Back on the main thread: fold the script-updated session environment back into
@@ -106,6 +110,7 @@ impl AppView {
             let _ = this.update(cx, |view, cx| {
                 view.state.session_env = session_env;
                 view.responses.insert(tab_id.clone(), result);
+                view.response_consoles.insert(tab_id.clone(), console);
                 match shape {
                     Some(shape) => view.response_shapes.insert(tab_id.clone(), shape),
                     None => view.response_shapes.remove(&tab_id),
