@@ -18,6 +18,7 @@ pub mod load_test;
 pub mod navigation;
 pub mod new_workspace;
 pub mod request_editor;
+pub mod response_console;
 pub mod response_view;
 pub mod root;
 pub mod script_completion;

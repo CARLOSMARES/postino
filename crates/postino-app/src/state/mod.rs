@@ -7,6 +7,7 @@ pub mod about;
 pub mod auth_edit;
 pub mod completion;
 pub mod config;
+pub mod console;
 pub mod debug_open;
 pub mod define_variable;
 pub mod diff_view;

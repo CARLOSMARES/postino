@@ -3,7 +3,7 @@
 //! complete [`RunResult`] for the UI.
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use postino_core::{Environment, KeyValue, Request, ResolvedRequest, Response, VarScope};
 use postino_http::{Client, HttpError, SendOptions};
@@ -80,6 +80,7 @@ impl Runner {
         session_env: &mut SessionEnv,
         send: impl FnOnce(&ResolvedRequest) -> Result<Response, HttpError>,
     ) -> RunResult {
+        let started_at = SystemTime::now();
         let mut console = Vec::new();
         let mut tests = Vec::new();
 
@@ -108,6 +109,9 @@ impl Runner {
                         console,
                         warnings: Vec::new(),
                         failed_stage: Some(FailedStage::Pre(error)),
+                        started_at,
+                        sent_at: None,
+                        finished_at: SystemTime::now(),
                     };
                 }
                 Ok(outcome) => {
@@ -135,6 +139,7 @@ impl Runner {
         );
 
         // 3. Send.
+        let sent_at = SystemTime::now();
         let response = match send(&resolved) {
             Ok(response) => response,
             Err(error) => {
@@ -145,6 +150,9 @@ impl Runner {
                     console,
                     warnings,
                     failed_stage: Some(FailedStage::Send(error)),
+                    started_at,
+                    sent_at: Some(sent_at),
+                    finished_at: SystemTime::now(),
                 };
             }
         };
@@ -175,6 +183,9 @@ impl Runner {
                         console,
                         warnings,
                         failed_stage: Some(FailedStage::Post(error)),
+                        started_at,
+                        sent_at: Some(sent_at),
+                        finished_at: SystemTime::now(),
                     };
                 }
                 Ok(outcome) => {
@@ -191,6 +202,9 @@ impl Runner {
                             console,
                             warnings,
                             failed_stage: Some(FailedStage::Post(script_error)),
+                            started_at,
+                            sent_at: Some(sent_at),
+                            finished_at: SystemTime::now(),
                         };
                     }
                 }
@@ -204,6 +218,9 @@ impl Runner {
             console,
             warnings,
             failed_stage: None,
+            started_at,
+            sent_at: Some(sent_at),
+            finished_at: SystemTime::now(),
         }
     }
 }

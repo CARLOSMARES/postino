@@ -1,9 +1,9 @@
 //! [`QuickJsEngine`], the real [`crate::ScriptEngine`] implementation, on top of QuickJS via
 //! `rquickjs`.
 
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use postino_core::{ConsoleLevel, ConsoleLine, KeyValue, TestResult};
+use postino_core::{ConsoleLevel, ConsoleLine, KeyValue, ScriptStage, TestResult};
 use rquickjs::context::EvalOptions;
 use rquickjs::{
     Coerced, Context, Ctx, Error as JsError, Exception, FromJs, Function, Object, Runtime, Value,
@@ -67,7 +67,7 @@ impl ScriptEngine for QuickJsEngine {
             request,
             vars: from_wire_kv(output.vars),
             env_changes: from_wire_env_changes(output.env_changes),
-            console: from_wire_console(output.console),
+            console: from_wire_console(output.console, ScriptStage::Pre),
             tests: from_wire_tests(output.tests),
         })
     }
@@ -94,7 +94,7 @@ impl ScriptEngine for QuickJsEngine {
         Ok(PostOutcome {
             vars: from_wire_kv(output.vars),
             env_changes: from_wire_env_changes(output.env_changes),
-            console: from_wire_console(output.console),
+            console: from_wire_console(output.console, ScriptStage::Post),
             tests: from_wire_tests(output.tests),
             script_error: run.script_error,
         })
@@ -492,6 +492,12 @@ struct WireTestResult {
 struct WireConsoleLine {
     level: String,
     text: String,
+    /// `Date.now()` when it was logged, milliseconds since the Unix epoch.
+    #[serde(default)]
+    time: Option<f64>,
+    /// The script line that logged it, when the stack trace had one.
+    #[serde(default)]
+    line: Option<u32>,
 }
 
 /// The JSON object `JSON.stringify(__collect())` produces after a script run.
@@ -552,10 +558,16 @@ fn from_wire_tests(tests: Vec<WireTestResult>) -> Vec<TestResult> {
 /// Converts wire console lines back to [`ConsoleLine`] values. An unrecognized level (which
 /// `prelude.js` never actually produces) falls back to [`ConsoleLevel::Log`] rather than
 /// panicking.
-fn from_wire_console(lines: Vec<WireConsoleLine>) -> Vec<ConsoleLine> {
+fn from_wire_console(lines: Vec<WireConsoleLine>, stage: ScriptStage) -> Vec<ConsoleLine> {
     lines
         .into_iter()
         .map(|line| ConsoleLine {
+            stage,
+            time: line
+                .time
+                .filter(|millis| millis.is_finite() && *millis >= 0.0)
+                .map(|millis| UNIX_EPOCH + Duration::from_millis(millis as u64)),
+            line: line.line,
             level: match line.level.as_str() {
                 "info" => ConsoleLevel::Info,
                 "warn" => ConsoleLevel::Warn,
@@ -1015,6 +1027,26 @@ mod tests {
         assert_eq!(outcome.console[2].level, ConsoleLevel::Warn);
         assert_eq!(outcome.console[3].level, ConsoleLevel::Error);
         assert_eq!(outcome.console[4].text, r#"{"a":1}"#);
+    }
+
+    #[test]
+    fn console_lines_carry_their_stage_time_and_script_line() {
+        let before = std::time::SystemTime::now() - Duration::from_secs(1);
+        let script = "const a = 1;\n\nconsole.log(a);\nfunction f() { console.warn('x'); }\nf();";
+        let pre = engine()
+            .run_pre(script, pre_ctx())
+            .expect("script runs fine");
+        let post = engine()
+            .run_post(script, post_ctx("{}"))
+            .expect("script runs fine");
+
+        assert_eq!(pre.console[0].stage, ScriptStage::Pre);
+        assert_eq!(post.console[0].stage, ScriptStage::Post);
+        assert_eq!(pre.console[0].line, Some(3));
+        assert_eq!(pre.console[1].line, Some(4));
+        assert_eq!(post.console[1].line, Some(4));
+        let time = pre.console[0].time.expect("a time");
+        assert!(time >= before && time <= std::time::SystemTime::now());
     }
 
     // --- util functions ----------------------------------------------------------------------------

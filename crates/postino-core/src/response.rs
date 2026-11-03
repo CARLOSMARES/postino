@@ -1,7 +1,7 @@
 //! Types produced by sending a request: the resolved request actually sent, the response
 //! received, and the outcome of post-response scripts.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::method::Method;
 
@@ -82,6 +82,15 @@ pub enum ConsoleLevel {
     Error,
 }
 
+/// The script a [`ConsoleLine`] came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptStage {
+    /// The `::: pre` script, run before the request is sent.
+    Pre,
+    /// The `::: post` script, run after the response arrives.
+    Post,
+}
+
 /// A single line captured from `console.log/info/warn/error` in a script.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConsoleLine {
@@ -89,6 +98,12 @@ pub struct ConsoleLine {
     pub level: ConsoleLevel,
     /// The logged text.
     pub text: String,
+    /// The script that logged it.
+    pub stage: ScriptStage,
+    /// When it was logged. `None` when the script's clock could not be read.
+    pub time: Option<SystemTime>,
+    /// The line of the script that logged it, from 1, when the engine's stack trace has it.
+    pub line: Option<u32>,
 }
 
 #[cfg(test)]

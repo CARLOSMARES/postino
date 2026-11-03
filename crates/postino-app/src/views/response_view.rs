@@ -17,7 +17,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 use rust_i18n::t;
 
-use postino_core::{ConsoleLevel, TestResult};
+use postino_core::TestResult;
 use postino_runner::{FailedStage, HttpError, RunResult};
 
 use crate::state::locale;
@@ -150,9 +150,13 @@ impl AppView {
         // intrinsic height, which collapses a `flex_1` editor to a couple of lines.
         // Headers/Tests/Console are plain lists with no scrolling of their own, so they still need
         // it here, with a visible scrollbar laid over the area (the welcome tab's pattern).
-        let body = self.active_response_tab == ResponseTab::Body;
+        // The Console tab lays out its own fixed filter bar over its own scrolling list.
+        let own_scroll = matches!(
+            self.active_response_tab,
+            ResponseTab::Body | ResponseTab::Console
+        );
         let tab_content = self.render_response_tab_content(&tab_id, window, cx);
-        let content = if body {
+        let content = if own_scroll {
             div()
                 .id("response-content")
                 .flex_1()
@@ -237,6 +241,10 @@ impl AppView {
         let header_count = result.response.as_ref().map_or(0, |r| r.headers.len());
         let test_count = result.tests.len();
         let passed_count = result.tests.iter().filter(|test| test.passed).count();
+        let error_count = self
+            .response_consoles
+            .get(tab_id)
+            .map_or(0, |timeline| timeline.error_count);
 
         let mut bar = UnderlineTabs::new("response-tabs")
             .height(crate::theme::metrics::RESPONSE_TAB_BAR_HEIGHT);
@@ -255,6 +263,11 @@ impl AppView {
                         } else {
                             palette.danger
                         });
+                }
+                ResponseTab::Console if error_count > 0 => {
+                    item = item
+                        .count(error_count.to_string())
+                        .count_color(palette.danger);
                 }
                 _ => {}
             }
@@ -280,15 +293,17 @@ impl AppView {
         if self.active_response_tab == ResponseTab::Body {
             return self.render_response_body_tab(tab_id, window, cx);
         }
+        if self.active_response_tab == ResponseTab::Console {
+            return self.render_console_tab(tab_id, cx);
+        }
         let Some(result) = self.responses.get(tab_id) else {
             return div().into_any_element();
         };
         match self.active_response_tab {
             ResponseTab::Headers => render_headers_tab(tab_id, result, cx),
             ResponseTab::Tests => render_tests_tab(result, cx),
-            ResponseTab::Console => render_console_tab(result, cx),
             // Handled above, before `result` was even looked up.
-            ResponseTab::Body => unreachable!(),
+            ResponseTab::Body | ResponseTab::Console => unreachable!(),
         }
     }
 
@@ -681,35 +696,5 @@ fn render_test_row(test: &TestResult, palette: &crate::theme::Palette) -> AnyEle
                         .map(|message| div().text_sm().text_color(palette.danger).child(message)),
                 ),
         )
-        .into_any_element()
-}
-
-/// Renders the `console.*` lines, colored by level.
-fn render_console_tab(result: &RunResult, cx: &Context<AppView>) -> AnyElement {
-    let palette = cx.palette();
-    if result.console.is_empty() {
-        return div()
-            .p_2()
-            .text_color(palette.fg_muted)
-            .child(t!("response.console.empty"))
-            .into_any_element();
-    }
-    let mono_font = cx.theme().mono_font_family.clone();
-    let mono_size = cx.theme().mono_font_size;
-    v_flex()
-        .p_2()
-        .gap_1()
-        .children(result.console.iter().map(|line| {
-            let color = match line.level {
-                ConsoleLevel::Log | ConsoleLevel::Info => palette.fg,
-                ConsoleLevel::Warn => palette.warning,
-                ConsoleLevel::Error => palette.danger,
-            };
-            div()
-                .font_family(mono_font.clone())
-                .text_size(mono_size)
-                .text_color(color)
-                .child(line.text.clone())
-        }))
         .into_any_element()
 }

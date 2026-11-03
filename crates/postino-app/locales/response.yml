@@ -95,6 +95,66 @@ _version: 2
   es: "Sin salida de consola."
   gl: "Sen saída da consola."
   it: "Nessun output della console."
+"response.console.no_match":
+  en: "Nothing matches the filter."
+  es: "Nada coincide con el filtro."
+  gl: "Nada coincide co filtro."
+  it: "Nessun elemento corrisponde al filtro."
+"response.console.filter":
+  en: "Filter console"
+  es: "Filtrar consola"
+  gl: "Filtrar consola"
+  it: "Filtra console"
+"response.console.filter_all":
+  en: "All"
+  es: "Todo"
+  gl: "Todo"
+  it: "Tutto"
+"response.console.filter_network":
+  en: "Network"
+  es: "Red"
+  gl: "Rede"
+  it: "Rete"
+"response.console.filter_logs":
+  en: "Logs"
+  es: "Logs"
+  gl: "Logs"
+  it: "Log"
+"response.console.filter_errors":
+  en: "Errors"
+  es: "Errores"
+  gl: "Erros"
+  it: "Errori"
+"response.console.clear":
+  en: "Clear"
+  es: "Limpiar"
+  gl: "Limpar"
+  it: "Pulisci"
+"response.console.tree":
+  en: "Tree"
+  es: "Árbol"
+  gl: "Árbore"
+  it: "Albero"
+"response.console.expand_all":
+  en: "Expand all"
+  es: "Expandir todo"
+  gl: "Expandir todo"
+  it: "Espandi tutto"
+"response.console.collapse":
+  en: "Collapse"
+  es: "Contraer"
+  gl: "Contraer"
+  it: "Comprimi"
+"response.console.raw_request":
+  en: "REQUEST"
+  es: "PETICIÓN"
+  gl: "PETICIÓN"
+  it: "RICHIESTA"
+"response.console.raw_response":
+  en: "RESPONSE"
+  es: "RESPUESTA"
+  gl: "RESPOSTA"
+  it: "RISPOSTA"
 "response.warning.unknown_variable":
   en: "Unknown variable"
   es: "Variable desconocida"
