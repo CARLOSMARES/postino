@@ -4,29 +4,25 @@
 //! `TitleBar`, so nothing here adds them. The search trigger opens the command palette
 //! (`views/command_palette.rs`); the settings gear opens Settings (`views/settings.rs`).
 
+use std::path::Path;
+
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::Button;
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::popover::{Popover, PopoverState};
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::*;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 use rust_i18n::t;
 
-use crate::actions::OpenWorkspace;
 use crate::state;
 use crate::theme::Palette;
 use crate::theme::PaletteExt;
-use crate::theme::metrics::{
-    ENV_PILL_HEIGHT, MENU_DOT_COLUMN_WIDTH, MENU_ROW_HEIGHT, RADIUS_MD, SEARCH_TRIGGER_WIDTH,
-    TITLE_BAR_HEIGHT,
-};
-use crate::views::components::NeutralButtonExt;
+use crate::theme::metrics::{ENV_PILL_HEIGHT, RADIUS_MD, SEARCH_TRIGGER_WIDTH, TITLE_BAR_HEIGHT};
+use crate::views::components::{NeutralButtonExt, SectionLabel};
 
 use super::root::AppView;
 use super::{new_workspace, sidebar};
-
-/// Longest path, in characters, shown next to a recent workspace in the switcher menu. Longer
-/// ones get their middle elided so the menu stays as narrow as a normal one.
-const MENU_PATH_MAX_CHARS: usize = 36;
 
 impl AppView {
     /// Renders the whole title bar's content.
@@ -84,8 +80,9 @@ impl AppView {
     }
 
     /// Renders the workspace switcher: the folder icon, the open workspace's folder name (or a
-    /// placeholder), a chevron, and its dropdown menu (recent workspaces, then "New workspace..."
-    /// and "Open folder...").
+    /// placeholder), a chevron, and its popover (design 1b of "Console & Workspace History",
+    /// #193). The popover is rebuilt from [`Self::recent_workspaces`] on every render, so a
+    /// workspace removed with its X disappears while the popover stays open.
     fn render_workspace_switcher(
         &self,
         weak: WeakEntity<Self>,
@@ -99,15 +96,8 @@ impl AppView {
             .and_then(|workspace| workspace.root().file_name())
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| t!("shell.title_bar.no_workspace").into_owned());
-        // Cached by `open_workspace_at`: this runs on every render, so no file is read here.
-        let current_path = self.workspace_path.clone();
-        let recent = self.recent_workspaces.clone();
-        let home = dirs::home_dir();
-        let fg_subtle = palette.fg_subtle;
-        let accent_text = palette.accent_text;
-        let recent_is_empty = recent.is_empty();
 
-        Button::new("workspace-switcher")
+        let trigger = Button::new("workspace-switcher")
             .neutral_ghost(cx, palette.fg_muted)
             .h(px(ENV_PILL_HEIGHT))
             .px_2()
@@ -115,82 +105,216 @@ impl AppView {
             .text_color(palette.fg_muted)
             .icon(Icon::new(IconName::Folder).small())
             .label(label)
-            .dropdown_caret(true)
-            .dropdown_menu(move |mut menu, _, _| {
-                for path in &recent {
-                    let name = path
-                        .file_name()
-                        .map(|name| name.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| path.display().to_string());
-                    let shortened = state::format::elide_path(
-                        &state::format::shorten_path(path, home.as_deref()),
-                        MENU_PATH_MAX_CHARS,
-                    );
-                    let is_current = current_path.as_deref() == Some(path.as_path());
-                    let select_weak = weak.clone();
-                    let target = path.clone();
+            .dropdown_caret(true);
 
-                    let entry = PopupMenuItem::element(move |_, _| {
-                        let mut leading = div()
-                            .flex_none()
-                            .w(px(MENU_DOT_COLUMN_WIDTH))
-                            .flex()
-                            .justify_center();
-                        if is_current {
-                            leading = leading
-                                .child(Icon::new(IconName::Check).small().text_color(accent_text));
-                        }
-                        h_flex()
-                            .h(px(MENU_ROW_HEIGHT))
-                            .items_center()
-                            .gap_2()
-                            .px_1()
-                            .w_full()
-                            .child(leading)
-                            .child(div().flex_1().child(name.clone()))
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(fg_subtle)
-                                    .child(shortened.clone()),
-                            )
-                    })
-                    .on_click(move |_, window, cx| {
-                        let target = target.clone();
-                        let _ = select_weak.update(cx, |view, cx| {
-                            view.open_workspace_at(&target, window, cx);
-                        });
-                    });
-                    menu = menu.item(entry);
-                }
-                if !recent_is_empty {
-                    menu = menu.separator();
-                }
-                let new_weak = weak.clone();
-                menu = menu.item(PopupMenuItem::new(t!("common.new_workspace")).on_click(
-                    move |_, window, cx| {
-                        new_workspace::open_new_workspace_dialog(
-                            new_weak.clone(),
-                            new_workspace::NewWorkspacePurpose::Example,
-                            None,
-                            window,
-                            cx,
-                        );
-                    },
-                ));
-                let open_weak = weak.clone();
-                // The action only shows its `Ctrl O` hint: the click handler runs instead of it.
-                menu = menu.item(
-                    PopupMenuItem::new(t!("common.open_folder"))
-                        .action(Box::new(OpenWorkspace))
-                        .on_click(move |_, window, cx| {
-                            sidebar::pick_workspace_folder(open_weak.clone(), window, cx);
-                        }),
-                );
-                menu
-            })
+        Popover::new("workspace-switcher-popover")
+            .w(px(WORKSPACE_MENU_WIDTH))
+            .p(px(6.0))
+            .trigger(trigger)
+            .content(move |_, _, cx| render_workspace_menu(weak.clone(), cx))
             .into_any_element()
     }
+
+    /// Removes `path` from the recent workspace list, never from disk, and refreshes the list
+    /// the switcher and the welcome tab show.
+    fn forget_recent_workspace(&mut self, path: &Path, cx: &mut Context<Self>) {
+        state::config::forget_workspace(path);
+        self.recent_workspaces = state::config::recent_workspaces();
+        log::debug!("removed a workspace from the recent list");
+        cx.notify();
+    }
+}
+
+/// Width of the workspace switcher's popover.
+const WORKSPACE_MENU_WIDTH: f32 = 400.0;
+/// Height of a recent workspace row: its name over its path.
+const WORKSPACE_ROW_HEIGHT: f32 = 44.0;
+/// Side of the X that removes a workspace from the recent list.
+const WORKSPACE_FORGET_SIZE: f32 = 28.0;
+/// Height of the "Open folder" and "New workspace" rows.
+const WORKSPACE_ACTION_ROW_HEIGHT: f32 = 30.0;
+
+/// The switcher popover's content: the "Recent" rows, then "Open folder..." and "New
+/// workspace...". Reads the recent list from the app view, which `open_workspace_at` and
+/// `forget_recent_workspace` keep up to date, so no file is read here.
+fn render_workspace_menu(weak: WeakEntity<AppView>, cx: &mut Context<PopoverState>) -> Div {
+    let palette = cx.palette();
+    let mono_font = cx.theme().mono_font_family.clone();
+    let (recent, current_path) = match weak.upgrade() {
+        Some(view) => {
+            let view = view.read(cx);
+            (view.recent_workspaces.clone(), view.workspace_path.clone())
+        }
+        None => (Vec::new(), None),
+    };
+    let home = dirs::home_dir();
+    let only_current = recent
+        .iter()
+        .all(|path| current_path.as_deref() == Some(path.as_path()));
+
+    let rows = recent.into_iter().enumerate().map(|(index, path)| {
+        let is_current = current_path.as_deref() == Some(path.as_path());
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string());
+        let shortened = state::format::shorten_path(&path, home.as_deref());
+        let open_weak = weak.clone();
+        let forget_weak = weak.clone();
+        let open_path = path.clone();
+
+        let trailing = if is_current {
+            div()
+                .flex_none()
+                .px_2()
+                .text_size(px(11.0))
+                .text_color(palette.fg_subtle)
+                .child(t!("shell.title_bar.open_label"))
+                .into_any_element()
+        } else {
+            let fg = palette.fg;
+            let hover = palette.hover;
+            let pressed = palette.pressed;
+            let tooltip = SharedString::from(t!("shell.title_bar.remove_recent").into_owned());
+            div()
+                .id(("workspace-forget", index))
+                .flex_none()
+                .size(px(WORKSPACE_FORGET_SIZE))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(RADIUS_MD - 2.0))
+                .cursor_pointer()
+                .text_color(palette.fg_subtle)
+                .hover(move |style| style.bg(hover).text_color(fg))
+                .active(move |style| style.bg(pressed).text_color(fg))
+                .child(Icon::new(IconName::Close).with_size(px(14.0)))
+                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+                .on_click(move |_, _, cx| {
+                    // The row under the button opens the workspace on click: keep it out.
+                    cx.stop_propagation();
+                    let _ =
+                        forget_weak.update(cx, |view, cx| view.forget_recent_workspace(&path, cx));
+                })
+                .into_any_element()
+        };
+
+        h_flex()
+            .id(("workspace-recent", index))
+            .h(px(WORKSPACE_ROW_HEIGHT))
+            .items_center()
+            .gap(px(10.0))
+            .pl_2()
+            .pr_1()
+            .rounded(px(RADIUS_MD - 2.0))
+            .cursor_pointer()
+            .when(is_current, |row| row.bg(palette.list_active))
+            .hover(|style| style.bg(palette.hover))
+            .active(|style| style.bg(palette.pressed))
+            .child(if is_current {
+                Icon::new(IconName::Check)
+                    .small()
+                    .text_color(palette.accent_text)
+            } else {
+                Icon::new(IconName::Folder)
+                    .small()
+                    .text_color(palette.fg_muted)
+            })
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(2.0))
+                    .child(div().truncate().text_color(palette.fg).child(name))
+                    .child(
+                        div()
+                            .truncate()
+                            .font_family(mono_font.clone())
+                            .text_size(px(11.0))
+                            .text_color(palette.fg_subtle)
+                            .child(shortened),
+                    ),
+            )
+            .child(trailing)
+            .on_click(cx.listener(move |popover, _, window, cx| {
+                popover.dismiss(window, cx);
+                if !is_current {
+                    let _ = open_weak.update(cx, |view, cx| {
+                        view.open_workspace_at(&open_path, window, cx)
+                    });
+                }
+            }))
+    });
+    let rows: Vec<_> = rows.collect();
+
+    let open_weak = weak.clone();
+    let new_weak = weak;
+    v_flex()
+        .text_sm()
+        .child(
+            div()
+                .px_2()
+                .pt(px(6.0))
+                .pb(px(4.0))
+                .child(SectionLabel::new(t!("shell.title_bar.recent"))),
+        )
+        .children(rows)
+        .when(only_current, |menu| {
+            menu.child(
+                div()
+                    .p_2()
+                    .text_size(px(12.0))
+                    .text_color(palette.fg_subtle)
+                    .child(t!("shell.title_bar.no_other_recent")),
+            )
+        })
+        .child(div().h(px(1.0)).my(px(6.0)).bg(palette.border))
+        .child(
+            action_row("workspace-open-folder", Lucide::FolderOpen, &palette)
+                .child(div().flex_1().child(t!("common.open_folder")))
+                .child(
+                    div()
+                        .font_family(mono_font)
+                        .text_size(px(11.0))
+                        .text_color(palette.fg_subtle)
+                        .child(modifier_hint('O')),
+                )
+                .on_click(cx.listener(move |popover, _, window, cx| {
+                    popover.dismiss(window, cx);
+                    sidebar::pick_workspace_folder(open_weak.clone(), window, cx);
+                })),
+        )
+        .child(
+            action_row("workspace-new", Lucide::FolderPlus, &palette)
+                .child(div().flex_1().child(t!("common.new_workspace")))
+                .on_click(cx.listener(move |popover, _, window, cx| {
+                    popover.dismiss(window, cx);
+                    new_workspace::open_new_workspace_dialog(
+                        new_weak.clone(),
+                        new_workspace::NewWorkspacePurpose::Example,
+                        None,
+                        window,
+                        cx,
+                    );
+                })),
+        )
+}
+
+/// A one-line row of the switcher popover with a leading icon, and the hover and pressed
+/// backgrounds.
+fn action_row(id: &'static str, icon: Lucide, palette: &Palette) -> Stateful<Div> {
+    h_flex()
+        .id(id)
+        .h(px(WORKSPACE_ACTION_ROW_HEIGHT))
+        .items_center()
+        .gap(px(10.0))
+        .px_2()
+        .rounded(px(RADIUS_MD - 2.0))
+        .cursor_pointer()
+        .text_color(palette.fg)
+        .hover(|style| style.bg(palette.hover))
+        .active(|style| style.bg(palette.pressed))
+        .child(Icon::new(icon).small().text_color(palette.fg_muted))
 }
 
 /// Wraps an interactive title bar control so the mouse reaches it. `TitleBar` marks the whole bar
@@ -271,7 +395,7 @@ fn render_search_trigger(
                 })
                 .rounded(px(4.0))
                 .px(px(4.0))
-                .child(shortcut_hint()),
+                .child(modifier_hint('K')),
         )
         .on_click(move |_, window, cx| {
             let _ = weak.update(cx, |view, cx| view.open_command_palette(window, cx));
@@ -306,11 +430,13 @@ fn render_settings_gear(weak: WeakEntity<AppView>, palette: &Palette) -> impl In
         })
 }
 
-/// `"Ctrl+K"` (`"Cmd+K"` on macOS): the search trigger's key hint.
-fn shortcut_hint() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "Cmd+K"
+/// `"Ctrl+<key>"` (`"Cmd+<key>"` on macOS): the key hints of the search trigger and the
+/// switcher's "Open folder..." row.
+fn modifier_hint(key: char) -> String {
+    let modifier = if cfg!(target_os = "macos") {
+        "Cmd"
     } else {
-        "Ctrl+K"
-    }
+        "Ctrl"
+    };
+    format!("{modifier}+{key}")
 }

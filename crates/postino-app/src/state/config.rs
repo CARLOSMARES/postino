@@ -119,6 +119,24 @@ fn record_workspace_at(base: &Path, root: &Path) {
     write_recent_workspaces(base, &recents);
 }
 
+/// Removes `root` from the recent workspace list. Only the list changes: the folder itself is
+/// never touched. Like [`record_workspace`], failing to persist it is silently ignored.
+pub fn forget_workspace(root: &Path) {
+    if let Some(base) = config_dir() {
+        forget_workspace_at(&base, root);
+    }
+}
+
+/// The testable core of [`forget_workspace`], taking the config base directory explicitly.
+fn forget_workspace_at(base: &Path, root: &Path) {
+    let mut recents = read_recent_workspaces(base);
+    let before = recents.len();
+    recents.retain(|existing| existing != root);
+    if recents.len() != before {
+        write_recent_workspaces(base, &recents);
+    }
+}
+
 /// The workspace to reopen at startup: the first entry of [`recent_workspaces`] that still
 /// exists on disk, or `None` if there are no recent workspaces or none of them exist anymore.
 pub fn load_last_workspace() -> Option<PathBuf> {
@@ -325,6 +343,23 @@ mod tests {
             read_recent_workspaces(base),
             vec![base.join("b"), base.join("a"), base.join("c")]
         );
+    }
+
+    #[test]
+    fn forget_workspace_removes_the_entry_and_keeps_the_folder() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let base = dir.path();
+        let folder = base.join("b");
+        fs::create_dir(&folder).expect("create folder");
+        write_recent_workspaces(base, &[base.join("a"), folder.clone(), base.join("c")]);
+
+        forget_workspace_at(base, &folder);
+
+        assert_eq!(
+            read_recent_workspaces(base),
+            vec![base.join("a"), base.join("c")]
+        );
+        assert!(folder.is_dir());
     }
 
     #[test]

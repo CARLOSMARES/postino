@@ -10,6 +10,26 @@ _version: 2
   es: "Buscar peticiones y acciones"
   gl: "Buscar peticións e accións"
   it: "Cerca richieste e azioni"
+"shell.title_bar.recent":
+  en: "Recent"
+  es: "Recientes"
+  gl: "Recentes"
+  it: "Recenti"
+"shell.title_bar.open_label":
+  en: "Open"
+  es: "Abierto"
+  gl: "Aberto"
+  it: "Aperto"
+"shell.title_bar.remove_recent":
+  en: "Remove from history"
+  es: "Quitar del historial"
+  gl: "Quitar do historial"
+  it: "Rimuovi dalla cronologia"
+"shell.title_bar.no_other_recent":
+  en: "No other recent workspaces."
+  es: "No hay otros espacios de trabajo recientes."
+  gl: "Non hai outros espazos de traballo recentes."
+  it: "Nessun altro spazio di lavoro recente."
 "shell.status_bar.unsaved":
   en: "Unsaved changes"
   es: "Cambios sin guardar"
