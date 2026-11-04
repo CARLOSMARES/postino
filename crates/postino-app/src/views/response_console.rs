@@ -271,21 +271,27 @@ impl AppView {
                     ),
             )
             .child(time_cell(*time, &palette))
+            // The method right before the URL, read as one, not in the source column.
             .child(
-                div()
-                    .w(px(SOURCE_COLUMN_WIDTH))
-                    .flex_none()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(palette.method_color(method))
-                    .child(method.to_string()),
-            )
-            .child(
-                div()
+                h_flex()
                     .flex_1()
                     .min_w_0()
-                    .truncate()
-                    .text_color(palette.fg)
-                    .child(url.clone()),
+                    .gap(px(8.0))
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(palette.method_color(method))
+                            .child(method.to_string()),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(palette.fg)
+                            .child(url.clone()),
+                    ),
             )
             .when_some(*status, |row, status| {
                 row.child(div().text_color(status_color).child(status.to_string()))
