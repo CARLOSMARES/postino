@@ -257,6 +257,7 @@ impl AppView {
             .px(px(PADDING_X))
             .cursor_pointer()
             .hover(|style| style.bg(palette.hover))
+            .active(|style| style.bg(palette.pressed))
             .child(
                 div()
                     .w(px(ICON_COLUMN_WIDTH))
@@ -725,7 +726,9 @@ fn render_tree_row(
         .when(!selected, |line| {
             line.hover(|style| style.bg(palette.hover))
         })
-        .when(branch, |line| line.cursor_pointer())
+        // Every row is clickable since #197 (it selects), not only branches.
+        .active(|style| style.bg(palette.pressed))
+        .cursor_pointer()
         // The UI font for the Copy menu, which inherits it; the key and value are mono.
         .font_family(cx.theme().font_family.clone())
         .child(
