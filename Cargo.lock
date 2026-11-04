@@ -4882,7 +4882,6 @@ dependencies = [
  "postino-cli",
  "postino-core",
  "postino-format",
- "postino-git",
  "postino-load",
  "postino-runner",
  "postino-script",
@@ -4892,6 +4891,7 @@ dependencies = [
  "serde",
  "serde_json",
  "telaio-app",
+ "telaio-git",
  "telaio-ui",
  "telaio-update",
  "tempfile",
@@ -4924,17 +4924,6 @@ dependencies = [
  "pretty_assertions",
  "serde",
  "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "postino-git"
-version = "0.7.0-dev"
-dependencies = [
- "dunce",
- "log",
- "pretty_assertions",
- "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -6618,6 +6607,16 @@ dependencies = [
  "sys-locale",
  "telaio-ui",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "telaio-git"
+version = "0.13.0"
+source = "git+https://github.com/tanisperez/telaio?tag=v0.13.0#f59a9c461357a8a0ab22213c43c6e1d8bf2b1593"
+dependencies = [
+ "dunce",
+ "log",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

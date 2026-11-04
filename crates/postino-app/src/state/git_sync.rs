@@ -5,8 +5,8 @@
 
 use std::time::{Duration, Instant};
 
-use postino_git::{FailureKind, NumStat, Status, is_secret_file};
 use rust_i18n::t;
+use telaio_git::{FailureKind, NumStat, Status};
 
 /// The least time between two automatic fetches, so coming back to the window often costs at
 /// most one fetch every five minutes.
@@ -135,6 +135,12 @@ pub struct SyncState {
     pub failure: Option<GitFailure>,
 }
 
+/// Whether a file holds secrets that should not be committed: Postino's local environment files
+/// (`*.local.env`). Pure, it only looks at the name.
+pub fn is_secret_file(path: &str) -> bool {
+    path.ends_with(".local.env")
+}
+
 /// The staged files that hold secrets (design 6d), repository relative. The whole index counts,
 /// files outside the workspace included, since all of it goes into the commit.
 pub fn staged_secrets(status: &Status) -> Vec<String> {
@@ -143,8 +149,8 @@ pub fn staged_secrets(status: &Status) -> Vec<String> {
         .iter()
         .filter(|entry| {
             !entry.untracked
-                && entry.index != postino_git::Change::Unmodified
-                && entry.index != postino_git::Change::Deleted
+                && entry.index != telaio_git::Change::Unmodified
+                && entry.index != telaio_git::Change::Deleted
                 && is_secret_file(&entry.path)
         })
         .map(|entry| entry.path.clone())
@@ -181,7 +187,7 @@ pub fn auto_fetch_due(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use postino_git::{Change, Entry, Head};
+    use telaio_git::{Change, Entry, Head};
 
     fn entry(path: &str, index: Change, untracked: bool) -> Entry {
         Entry {
@@ -203,6 +209,14 @@ mod tests {
             behind: 0,
             entries,
         }
+    }
+
+    #[test]
+    fn recognizes_secret_files() {
+        assert!(is_secret_file("environments/dev.local.env"));
+        assert!(is_secret_file("prod.local.env"));
+        assert!(!is_secret_file("environments/dev.env"));
+        assert!(!is_secret_file("local.env.bak"));
     }
 
     #[test]

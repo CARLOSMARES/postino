@@ -11,8 +11,8 @@ use gpui_kit::component::notification::Notification;
 use gpui_kit::component::*;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
-use postino_git::{FailureKind, GitError, Repo, auto_stash_message};
 use rust_i18n::t;
+use telaio_git::{FailureKind, GitError, Repo, auto_stash_message};
 
 use crate::state::git::BranchList;
 use crate::state::git_sync::GitOp;
@@ -27,6 +27,10 @@ use crate::views::components::{
 use crate::views::sidebar::{NameSubmit, open_name_dialog};
 
 use super::super::root::AppView;
+
+/// The start of the message of the stashes Postino creates itself, followed by the branch name.
+/// It must stay `postino-auto:` so the automatic stashes of earlier versions are still found.
+const AUTO_STASH_PREFIX: &str = "postino-auto:";
 
 /// What to check out.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -469,7 +473,7 @@ fn checkout_with_stash(
     clean: bool,
 ) -> Result<CheckoutOutcome, GitError> {
     let stashed = match stash_from {
-        Some(branch) => repo.stash_push(&auto_stash_message(branch))?,
+        Some(branch) => repo.stash_push(&auto_stash_message(AUTO_STASH_PREFIX, branch))?,
         None => false,
     };
     let switched = match target {
@@ -479,7 +483,9 @@ fn checkout_with_stash(
     if let Err(error) = switched {
         if stashed {
             // Nothing moved: give the changes back where they were.
-            if let Some(index) = repo.find_auto_stash(stash_from.unwrap_or_default())? {
+            if let Some(index) =
+                repo.find_auto_stash(AUTO_STASH_PREFIX, stash_from.unwrap_or_default())?
+            {
                 repo.stash_pop(index)?;
             }
         }
@@ -489,7 +495,7 @@ fn checkout_with_stash(
     if clean && let CheckoutTarget::Branch(name) = target {
         // A remote name checks out its local branch, whose stash is under the local name.
         let local = local_name(repo, name);
-        if let Some(index) = repo.find_auto_stash(&local)? {
+        if let Some(index) = repo.find_auto_stash(AUTO_STASH_PREFIX, &local)? {
             repo.stash_pop(index)?;
             restored = true;
         }
@@ -501,8 +507,8 @@ fn checkout_with_stash(
 fn local_name(repo: &Repo, name: &str) -> String {
     match repo.status() {
         Ok(status) => match status.head {
-            postino_git::Head::Branch(branch) | postino_git::Head::Unborn(branch) => branch,
-            postino_git::Head::Detached(_) => name.to_string(),
+            telaio_git::Head::Branch(branch) | telaio_git::Head::Unborn(branch) => branch,
+            telaio_git::Head::Detached(_) => name.to_string(),
         },
         Err(_) => name.to_string(),
     }

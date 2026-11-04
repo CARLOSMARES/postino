@@ -1,6 +1,6 @@
 //! Plain data behind the Git integration (milestone 0.5.0): whether git is available, the
 //! repository of the open workspace with its last status, and the rows of the Source Control
-//! panel (design 2b). Running git is IO, so `views/git` calls `postino-git` on the background
+//! panel (design 2b). Running git is IO, so `views/git` calls `telaio-git` on the background
 //! executor and stores the results here; render only reads them.
 
 use std::cmp::Ordering;
@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use postino_core::Method;
-use postino_git::{Change, DetectError, Entry, Git, Head, Repo, Status};
 use postino_workspace::{Node, natural_cmp};
+use telaio_git::{Change, DetectError, Entry, Git, Head, Repo, Status};
 
 /// Whether the git executable could be used, as last detected.
 #[derive(Debug, Clone, Default)]
@@ -72,7 +72,7 @@ pub struct GitState {
     pub secrets: Arc<Vec<String>>,
     /// The commit author from git config (`user.name` and `user.email`), read when the
     /// repository is discovered. `None` without a repository or without an author configured.
-    pub author: Option<postino_git::Author>,
+    pub author: Option<telaio_git::Author>,
     /// The commit box: Amend and what the next commit includes.
     pub commit: crate::state::git_sync::CommitBox,
     /// The command running against the history or the remote, and the last failure.
@@ -86,7 +86,7 @@ pub struct GitState {
 #[derive(Debug, Clone, Default)]
 pub struct BranchList {
     /// Every local and remote branch and tag.
-    pub branches: Vec<postino_git::BranchInfo>,
+    pub branches: Vec<telaio_git::BranchInfo>,
     /// The local branches checked out last, most recent first.
     pub recent: Vec<String>,
 }

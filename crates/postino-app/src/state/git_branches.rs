@@ -2,9 +2,9 @@
 //! Recent, Local and one Remote group per remote, favourites first, each row with its last commit
 //! and sync state. Built once when the menu opens or the branches change, never in render.
 
-use postino_git::{BranchInfo, RefKind};
 use postino_workspace::natural_cmp;
 use rust_i18n::t;
+use telaio_git::{BranchInfo, RefKind};
 
 use crate::state::format::relative_time;
 

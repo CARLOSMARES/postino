@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use gpui_kit::prelude::*;
 use gpui_kit::*;
-use postino_git::{DiffSource, Executable};
+use telaio_git::{DiffSource, Executable};
 
 use crate::state::git::{GitAvailability, RepoState};
 use crate::state::git_sync::CommitStats;
@@ -72,7 +72,7 @@ impl AppView {
         self.git.availability = GitAvailability::Detecting;
         self.git_tasks.detect = Some(cx.spawn(async move |this, cx| {
             let result = cx
-                .background_spawn(async move { postino_git::detect(&executable) })
+                .background_spawn(async move { telaio_git::detect(&executable) })
                 .await;
             let _ = this.update(cx, |view, cx| {
                 view.git.availability = match result {

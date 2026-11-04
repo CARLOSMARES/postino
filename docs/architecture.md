@@ -30,14 +30,14 @@ postino-app ──> postino-load ──> postino-runner ──> postino-script �
      ├──────> postino-runner
      ├──────> postino-script
      ├──────> postino-workspace ─> postino-format ─> postino-core
-     ├──────> postino-git (standalone, drives the `git` executable)
      ├──────> postino-format
      └──────> postino-cli (standalone, depends on no other postino crate)
 ```
 
 No cycles, and no crate depends on `postino-app`. From [telaio](https://github.com/tanisperez/telaio),
 `postino-app` also uses `telaio-ui` (design system and standard components), `telaio-update`
-(the in-app updater) and `telaio-app` (the application shell: logging, language, numbers, paths,
+(the in-app updater), `telaio-git` (drives the installed `git` executable, shared with ted) and
+`telaio-app` (the application shell: logging, language, numbers, paths,
 window bootstrap and the About header), all shared with the other apps. `postino-cli` uses
 `telaio-app` for the command line pieces.
 
@@ -46,7 +46,6 @@ window bootstrap and the About header), all shared with the other apps. `postino
 | `postino-core` | Domain model (`Request`, `Method`, `Body`, `Environment`, ...), `{{ }}` variable interpolation and the built-in template functions. No IO. |
 | `postino-format` | `.postino` and `.env` parse and serialize, code snippets (curl, fetch, Python requests), Postman import. No IO. |
 | `postino-workspace` | Filesystem access: creates new workspace folders (with the example request), scans a folder, loads and saves requests and environments, writes environment variables, detects the git branch, imports Postman collections to disk. |
-| `postino-git` | Drives the `git` executable installed on the machine: detection and version check, repository discovery, status, stage, unstage, discard, author. Blocking, no `gpui`, depends on no other postino crate. |
 | `postino-script` | The `ScriptEngine` trait and its QuickJS implementation (`rquickjs`). |
 | `postino-http` | Sends a resolved request with `ureq` 3 (blocking, rustls) and measures timing. |
 | `postino-runner` | The pipeline: variables, pre script, interpolate, send, post script. Also `preview`, which resolves a request without scripts or network. |

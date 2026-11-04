@@ -1,5 +1,5 @@
 //! What the diff tab paints (design 7a), computed once per patch on the background executor: the
-//! whole file's lines from `postino_git::parse_file_diff`, each one cut into runs that carry a
+//! whole file's lines from `telaio_git::parse_file_diff`, each one cut into runs that carry a
 //! syntax kind (from `postino_format::highlight`, on each side's full text) and whether the run
 //! is a changed word. Render only reads it, so scrolling a big file costs nothing per line.
 
@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use gpui_kit::SharedString;
 use postino_format::highlight::{Language, Token, TokenKind, highlight, language_for_path};
-use postino_git::{FileDiff, LineKind, parse_file_diff};
+use telaio_git::{FileDiff, LineKind, parse_file_diff};
 
 /// The longest part of a line that is shown (bytes). The row cuts it with an ellipsis long before
 /// that, and a minified file of one huge line would otherwise be copied on every frame.

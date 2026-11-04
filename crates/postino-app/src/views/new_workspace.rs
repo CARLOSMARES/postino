@@ -72,7 +72,7 @@ struct NewWorkspaceForm {
     /// What the workspace is for, taken once it has been created.
     purpose: Option<NewWorkspacePurpose>,
     /// The git Postino detected, `None` when it is not available (design 7c).
-    git: Option<postino_git::Git>,
+    git: Option<telaio_git::Git>,
     /// Whether to run `git init` in the new folder. On by default when git is available.
     init_git: bool,
     /// Whether the location is already inside a git repository, which hides the checkbox.
