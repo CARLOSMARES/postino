@@ -5,6 +5,7 @@
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::Path;
 use std::sync::Arc;
 
 use postino_core::Method;
@@ -33,6 +34,27 @@ impl GitAvailability {
     }
 }
 
+/// The WSL distribution `folder` is in, from its Windows path
+/// (`\\wsl.localhost\Ubuntu-24.04\...`).
+pub fn wsl_distro_of(folder: Option<&Path>) -> Option<String> {
+    folder
+        .and_then(telaio_git::wsl_location)
+        .map(|location| location.distro)
+}
+
+/// Whether git must be detected again before discovering the repository of `workspace`: with
+/// the automatic executable, the git of a workspace inside WSL is the git of its distribution
+/// (`telaio_git::detect_for`), so opening a workspace in another distribution, or moving between
+/// WSL and Windows, changes it. Never while a detection is running, it discovers when it ends.
+pub fn needs_detection(
+    auto: bool,
+    detecting: bool,
+    detected_for: Option<&str>,
+    workspace: Option<&Path>,
+) -> bool {
+    auto && !detecting && wsl_distro_of(workspace).as_deref() != detected_for
+}
+
 /// The repository of the open workspace.
 #[derive(Debug, Clone, Default)]
 pub enum RepoState {
@@ -58,6 +80,9 @@ pub enum RepoState {
 pub struct GitState {
     /// Whether git can be used.
     pub availability: GitAvailability,
+    /// The WSL distribution of the workspace the last detection was made for, `None` for a
+    /// workspace outside WSL or none open. See [`needs_detection`].
+    pub detected_for: Option<String>,
     /// The open workspace's repository.
     pub repo: RepoState,
     /// The panel's collapsed groups and folders, by [`ChangeRow::key`].
@@ -619,5 +644,37 @@ mod tests {
         let rows = change_rows(&status, "", &HashSet::new(), false);
         assert_eq!(rows[1].label, "v2");
         assert_eq!(rows[3].label, "v10");
+    }
+
+    #[test]
+    fn a_workspace_in_another_wsl_distribution_detects_git_again() {
+        let ubuntu = Path::new(r"\\wsl.localhost\Ubuntu-24.04\home\me\api");
+        let windows = Path::new(r"C:\work\api");
+        assert_eq!(wsl_distro_of(Some(ubuntu)).as_deref(), Some("Ubuntu-24.04"));
+        assert_eq!(wsl_distro_of(Some(windows)), None);
+        assert_eq!(wsl_distro_of(None), None);
+
+        // Detected without a workspace (at startup), then a WSL one opens.
+        assert!(needs_detection(true, false, None, Some(ubuntu)));
+        // Already detected for it, or a workspace outside WSL as before.
+        assert!(!needs_detection(
+            true,
+            false,
+            Some("Ubuntu-24.04"),
+            Some(ubuntu)
+        ));
+        assert!(!needs_detection(true, false, None, Some(windows)));
+        assert!(!needs_detection(true, false, None, None));
+        // From WSL back to Windows, or to another distribution.
+        assert!(needs_detection(
+            true,
+            false,
+            Some("Ubuntu-24.04"),
+            Some(windows)
+        ));
+        assert!(needs_detection(true, false, Some("Debian"), Some(ubuntu)));
+        // A detection running discovers when it ends, and a chosen executable never changes.
+        assert!(!needs_detection(true, true, None, Some(ubuntu)));
+        assert!(!needs_detection(false, false, None, Some(ubuntu)));
     }
 }

@@ -162,7 +162,15 @@ fn render_executable(
         GitAvailability::Ready(git) => (
             gpui_kit::assets::IconName::CircleCheck,
             palette.success,
-            t!("settings.git.found", version = git.version().to_string()).into_owned(),
+            match git.wsl_distro() {
+                Some(distro) => t!(
+                    "settings.git.found_wsl",
+                    version = git.version().to_string(),
+                    distro = distro
+                ),
+                None => t!("settings.git.found", version = git.version().to_string()),
+            }
+            .into_owned(),
             Some(t!("settings.git.needs", min = min_version()).into_owned()),
         ),
         GitAvailability::Missing(error) => (

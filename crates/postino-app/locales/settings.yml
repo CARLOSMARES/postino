@@ -365,6 +365,11 @@ _version: 2
   es: "git versión %{version}"
   gl: "git versión %{version}"
   it: "git versione %{version}"
+"settings.git.found_wsl":
+  en: "git version %{version} (WSL: %{distro})"
+  es: "git versión %{version} (WSL: %{distro})"
+  gl: "git versión %{version} (WSL: %{distro})"
+  it: "git versione %{version} (WSL: %{distro})"
 "settings.git.needs":
   en: "Postino needs %{min} or later"
   es: "Postino necesita %{min} o posterior"

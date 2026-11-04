@@ -9,7 +9,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 use telaio_git::{DiffSource, Executable};
 
-use crate::state::git::{GitAvailability, RepoState};
+use crate::state::git::{GitAvailability, RepoState, needs_detection, wsl_distro_of};
 use crate::state::git_sync::CommitStats;
 
 use super::root::AppView;
@@ -69,15 +69,33 @@ impl AppView {
     /// workspace's repository.
     pub(crate) fn detect_git(&mut self, cx: &mut Context<Self>) {
         let executable = self.git_executable();
+        // A workspace inside WSL uses the git of its distribution (`needs_detection`).
+        let folder = self
+            .state
+            .workspace
+            .as_ref()
+            .map(|workspace| workspace.root().to_path_buf());
+        self.git.detected_for = wsl_distro_of(folder.as_deref());
         self.git.availability = GitAvailability::Detecting;
         self.git_tasks.detect = Some(cx.spawn(async move |this, cx| {
             let result = cx
-                .background_spawn(async move { telaio_git::detect(&executable) })
+                .background_spawn(
+                    async move { telaio_git::detect_for(&executable, folder.as_deref()) },
+                )
                 .await;
             let _ = this.update(cx, |view, cx| {
                 view.git.availability = match result {
                     Ok(git) => {
-                        log::info!("git {} at {}", git.version(), git.path().display());
+                        match git.wsl_distro() {
+                            Some(distro) => log::info!(
+                                "git {} at {} in WSL {distro}",
+                                git.version(),
+                                git.path().display()
+                            ),
+                            None => {
+                                log::info!("git {} at {}", git.version(), git.path().display())
+                            }
+                        }
                         GitAvailability::Ready(git)
                     }
                     Err(error) => {
@@ -92,8 +110,24 @@ impl AppView {
     }
 
     /// Finds the repository of the open workspace, then reads its status. Call when the
-    /// workspace opens and after git is detected again.
+    /// workspace opens and after git is detected again. Detects git first when the workspace
+    /// needs another one (a workspace in another WSL distribution).
     pub(crate) fn discover_git_repo(&mut self, cx: &mut Context<Self>) {
+        let detecting = matches!(self.git.availability, GitAvailability::Detecting);
+        let workspace = self
+            .state
+            .workspace
+            .as_ref()
+            .map(|workspace| workspace.root());
+        if needs_detection(
+            self.state.settings.git_executable.is_none(),
+            detecting,
+            self.git.detected_for.as_deref(),
+            workspace,
+        ) {
+            self.detect_git(cx);
+            // Clear the old repository below; the detection discovers the new one when it ends.
+        }
         self.git.repo = RepoState::Unknown;
         self.git.author = None;
         self.git_tasks.status = None;
