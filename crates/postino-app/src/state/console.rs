@@ -25,6 +25,10 @@ use super::response_render::reason_phrase;
 /// Body tab already shows them, and a tree of a 15 MB JSON would cost far more than it helps.
 pub const MAX_DETAIL_BODY_BYTES: usize = 128 * 1024;
 
+/// The most characters of a string a tree row shows. The row truncates to its width anyway, this
+/// only keeps a 128 KB text body from being laid out whole on every frame.
+const MAX_LEAF_CHARS: usize = 500;
+
 /// Where an entry of the timeline came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntrySource {
@@ -557,8 +561,20 @@ fn leaf_text(value: &TreeValue) -> (String, ValueTone) {
         TreeValue::Null => ("null".to_string(), ValueTone::Constant),
         TreeValue::Bool(value) => (value.to_string(), ValueTone::Constant),
         TreeValue::Number(number) => (number.clone(), ValueTone::Number),
-        TreeValue::String(text) => (format!("\"{text}\""), ValueTone::String),
+        TreeValue::String(text) => (quoted(text), ValueTone::String),
         branch => (summary(branch), ValueTone::Summary),
+    }
+}
+
+/// A string as a JSON literal, so line breaks and tabs show as `\n` and `\t` and a row stays
+/// one line (a text body is usually several), cut at [`MAX_LEAF_CHARS`].
+fn quoted(text: &str) -> String {
+    let cut = text.char_indices().nth(MAX_LEAF_CHARS).map(|(at, _)| at);
+    let shown = cut.map_or(text, |at| &text[..at]);
+    let literal = serde_json::to_string(shown).unwrap_or_else(|_| format!("\"{shown}\""));
+    match cut {
+        Some(_) => format!("{}…\"", &literal[..literal.len() - 1]),
+        None => literal,
     }
 }
 
@@ -1036,5 +1052,20 @@ mod tests {
             tree_as_json(&value),
             "{\n  \"z\": [\n    1,\n    \"a\"\n  ],\n  \"a\": {}\n}"
         );
+    }
+
+    #[test]
+    fn a_multiline_string_stays_on_one_row() {
+        let value = TreeValue::String("chunk 1 of 4\nchunk 2 of 4\n\tend \"q\"".to_string());
+        assert_eq!(
+            leaf_text(&value).0,
+            r#""chunk 1 of 4\nchunk 2 of 4\n\tend \"q\"""#
+        );
+        assert_eq!(quoted("añadir"), r#""añadir""#);
+
+        let long = "x".repeat(MAX_LEAF_CHARS + 10);
+        let shown = quoted(&long);
+        assert_eq!(shown, format!("\"{}…\"", "x".repeat(MAX_LEAF_CHARS)));
+        assert!(!shown.contains('\n'));
     }
 }
