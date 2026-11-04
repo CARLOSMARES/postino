@@ -10,8 +10,8 @@ use gpui_kit::component::notification::Notification;
 use gpui_kit::component::*;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
-use postino_git::{FailureKind, GitError, PullMode, PushTarget};
 use rust_i18n::t;
+use telaio_git::{FailureKind, GitError, PullMode, PushTarget};
 
 use crate::state::git_sync::{
     GitFailure, GitOp, auto_fetch_due, can_commit, can_write_message, staged_secrets,
@@ -235,7 +235,7 @@ impl AppView {
     fn confirm_push(
         &mut self,
         target: PushTarget,
-        commits: Vec<postino_git::CommitSummary>,
+        commits: Vec<telaio_git::CommitSummary>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {

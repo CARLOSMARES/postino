@@ -8,8 +8,8 @@ use gpui_kit::component::switch::Switch;
 use gpui_kit::component::*;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
-use postino_git::{DetectError, MIN_VERSION};
 use rust_i18n::t;
+use telaio_git::{DetectError, MIN_VERSION};
 use telaio_ui::components::{LabeledRow, SectionHeading};
 
 use crate::state::git::GitAvailability;
@@ -26,7 +26,7 @@ use super::selects::{SettingsSelect, render_select};
 /// What the pane needs from [`AppView`], cloned out so nothing borrows the view while rendering.
 pub(super) struct GitPane {
     availability: GitAvailability,
-    author: Option<postino_git::Author>,
+    author: Option<telaio_git::Author>,
 }
 
 impl GitPane {

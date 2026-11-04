@@ -2,7 +2,7 @@
 //! known about its changes. The patch itself is read by `views/git/diff_tab.rs` on the
 //! background executor and turned into rows by `state/diff_view.rs`; this is only plain data.
 
-use postino_git::{FileDiff, LineKind};
+use telaio_git::{FileDiff, LineKind};
 
 /// The id of the diff tab. There is one: clicking another changed file reuses it, like a
 /// preview.
@@ -129,7 +129,7 @@ mod tests {
         let patch = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,3 +1,2 @@\n-a\n+A\n b\n-c\n\
                      @@ -9 +9,2 @@\n z\n+y\n";
         assert_eq!(
-            summarize(&postino_git::parse_file_diff(patch)),
+            summarize(&telaio_git::parse_file_diff(patch)),
             DiffSummary {
                 additions: 2,
                 deletions: 2,

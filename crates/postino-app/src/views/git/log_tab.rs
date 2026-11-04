@@ -24,8 +24,8 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 use postino_core::Method;
-use postino_git::{GraphRow, LinePart, Repo};
 use rust_i18n::t;
+use telaio_git::{GraphRow, LinePart, Repo};
 use telaio_ui::components::{
     SearchableSelect, SelectHandle, SelectOption, on_pick, pick, select_state, set_options,
 };
@@ -358,7 +358,7 @@ impl AppView {
     fn finish_git_log_page(
         &mut self,
         generation: u64,
-        result: Result<Vec<postino_git::LogCommit>, postino_git::GitError>,
+        result: Result<Vec<telaio_git::LogCommit>, telaio_git::GitError>,
         cx: &mut Context<Self>,
     ) {
         let Some(tab) = self.log_tab_mut() else {
@@ -458,7 +458,7 @@ impl AppView {
         &mut self,
         oid: String,
         prefix: String,
-        result: Result<postino_git::CommitDetail, postino_git::GitError>,
+        result: Result<telaio_git::CommitDetail, telaio_git::GitError>,
         cx: &mut Context<Self>,
     ) {
         let detail = result
@@ -521,10 +521,10 @@ impl AppView {
             )];
             if let Some(list) = &branches {
                 // Local branches, then remote ones, then tags, like the branch column.
-                let rank = |kind: &postino_git::RefKind| match kind {
-                    postino_git::RefKind::Local => 0,
-                    postino_git::RefKind::Remote { .. } => 1,
-                    postino_git::RefKind::Tag => 2,
+                let rank = |kind: &telaio_git::RefKind| match kind {
+                    telaio_git::RefKind::Local => 0,
+                    telaio_git::RefKind::Remote { .. } => 1,
+                    telaio_git::RefKind::Tag => 2,
                 };
                 let mut refs: Vec<_> = list.branches.iter().collect();
                 refs.sort_by_key(|branch| rank(&branch.kind));

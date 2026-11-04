@@ -5,7 +5,7 @@ use std::path::Path;
 
 use gpui_kit::prelude::*;
 use gpui_kit::*;
-use postino_git::GitError;
+use telaio_git::GitError;
 
 use crate::state::git::RepoState;
 
@@ -73,7 +73,7 @@ impl AppView {
 }
 
 /// `git init` in `root`, plus a `.gitignore` when the folder has none.
-pub(crate) fn init_with_gitignore(git: &postino_git::Git, root: &Path) -> Result<(), String> {
+pub(crate) fn init_with_gitignore(git: &telaio_git::Git, root: &Path) -> Result<(), String> {
     git.init(root).map_err(|error| error.to_string())?;
     let gitignore = root.join(".gitignore");
     if !gitignore.exists() {

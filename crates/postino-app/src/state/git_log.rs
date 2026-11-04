@@ -1,6 +1,6 @@
 //! The Git log tab (#174, design 4a): the filter, the pages of commits read so far with their
 //! graph layout, the selected commit and its detail, and the rows of the branch column. Plain
-//! data: `views/git/log_tab.rs` calls `postino-git` on the background executor and puts the
+//! data: `views/git/log_tab.rs` calls `telaio-git` on the background executor and puts the
 //! results here, render only reads them.
 //!
 //! The log is read in pages of [`PAGE_SIZE`] commits. Every page is laid out once when it
@@ -12,10 +12,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use postino_core::Method;
-use postino_git::{
+use postino_workspace::{Node, natural_cmp};
+use telaio_git::{
     CommitDetail, GraphLayout, GraphRow, LogCommit, LogQuery, RefKind, RefLabel, RefLabelKind,
 };
-use postino_workspace::{Node, natural_cmp};
 
 use crate::state::git::BranchList;
 use crate::state::git_branches::sync_label;
@@ -83,7 +83,7 @@ impl LogFilter {
     }
 
     /// The git query for the page that starts at `skip`. `prefix` is the workspace's place in
-    /// the repository ([`postino_git::Repo::prefix`]), which turns the workspace relative path
+    /// the repository ([`telaio_git::Repo::prefix`]), which turns the workspace relative path
     /// into a repository relative one.
     pub fn query(&self, prefix: &str, skip: usize) -> LogQuery {
         LogQuery {
@@ -579,7 +579,7 @@ pub fn log_branch_rows(
 ) -> Vec<LogBranchRow> {
     let needle = filter.trim().to_lowercase();
     let matches = |name: &str| needle.is_empty() || name.to_lowercase().contains(&needle);
-    let make = |branch: &postino_git::BranchInfo, class: RefClass| LogBranchRef {
+    let make = |branch: &telaio_git::BranchInfo, class: RefClass| LogBranchRef {
         name: branch.name.clone(),
         class,
         current: branch.is_head,
@@ -745,8 +745,8 @@ mod tests {
         );
         assert_eq!(resize_column(columns, 0, 1000.0, 0.0, 12.0)[0], COLUMN_MAX);
     }
-    use postino_git::{BranchInfo, CommitFile};
     use pretty_assertions::assert_eq;
+    use telaio_git::{BranchInfo, CommitFile};
 
     fn commit(oid: &str, parents: &[&str], refs: Vec<RefLabel>) -> LogCommit {
         LogCommit {

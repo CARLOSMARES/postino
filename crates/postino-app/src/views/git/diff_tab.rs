@@ -15,8 +15,8 @@ use gpui_kit::*;
 use postino_core::Method;
 use postino_format::highlight::TokenKind;
 use postino_format::{DiffRowKind, RequestDiff, RequestPart, RowNote, diff_requests};
-use postino_git::{ApplyTarget, DiffSource, FileVersion, LineKind, Repo, block_patch};
 use rust_i18n::t;
+use telaio_git::{ApplyTarget, DiffSource, FileVersion, LineKind, Repo, block_patch};
 
 use crate::state::diff_view::DiffModel;
 use crate::state::git_diff::{DiffSummary, DiffTab, DiffTarget, HunkStage, summarize};
@@ -65,7 +65,7 @@ impl LoadedDiff {
         repo: &Repo,
         repo_path: &str,
         source: &DiffSource,
-    ) -> Result<Self, postino_git::GitError> {
+    ) -> Result<Self, telaio_git::GitError> {
         let patch = repo.diff_full(repo_path, source)?;
         let model = DiffModel::build(&patch, repo_path);
         let summary = summarize(&model.diff);
@@ -225,7 +225,7 @@ impl AppView {
     fn finish_loading_diff(
         &mut self,
         generation: u64,
-        result: Result<LoadedDiff, postino_git::GitError>,
+        result: Result<LoadedDiff, telaio_git::GitError>,
         cx: &mut Context<Self>,
     ) {
         let Some(index) = self.state.tabs.index_of(crate::state::git_diff::TAB_ID) else {
@@ -843,7 +843,7 @@ impl RowContext {
 
     /// The change block that starts on list row `index`, if any.
     fn block_starting_at(&self, index: usize, unified: bool) -> Option<usize> {
-        let start = |block: &postino_git::ChangeBlock| {
+        let start = |block: &telaio_git::ChangeBlock| {
             if unified {
                 block.first_line
             } else {
