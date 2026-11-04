@@ -359,10 +359,12 @@ impl AppView {
                     }),
             );
 
-        let expand_detail = detail.clone();
+        // The buttons keep the shared timeline, not a copy of the detail: cloning the tree on
+        // every render would cost in proportion to the response.
+        let expand_timeline = timeline.clone();
         let expand_weak = weak.clone();
         let collapse_weak = weak.clone();
-        let copy_detail = detail.clone();
+        let copy_timeline = timeline.clone();
         let toolbar = h_flex()
             .items_center()
             .gap(px(6.0))
@@ -374,8 +376,11 @@ impl AppView {
                     .icon(Icon::new(Lucide::ChevronsUpDown))
                     .height(BAR_CONTROL_HEIGHT)
                     .on_click(move |_, _, cx| {
+                        let Some(detail) = expand_timeline.network.as_ref() else {
+                            return;
+                        };
                         let _ = expand_weak.update(cx, |view, cx| {
-                            view.console_view.expand_all(&expand_detail);
+                            view.console_view.expand_all(detail);
                             cx.notify();
                         });
                     }),
@@ -396,10 +401,13 @@ impl AppView {
                     .icon(Icon::new(Lucide::Copy))
                     .height(BAR_CONTROL_HEIGHT)
                     .on_click(move |_, _, cx| {
+                        let Some(detail) = copy_timeline.network.as_ref() else {
+                            return;
+                        };
                         let text = if raw {
-                            raw_text(&copy_detail)
+                            raw_text(detail)
                         } else {
-                            tree_as_json(&copy_detail.tree)
+                            tree_as_json(&detail.tree)
                         };
                         cx.write_to_clipboard(ClipboardItem::new_string(text));
                     }),
@@ -423,6 +431,7 @@ impl AppView {
                     timeline.clone(),
                     weak.clone(),
                     &palette,
+                    cx,
                 ));
             }
             // A click on a row focuses the tree (gpui focuses a tracked handle on mouse down),
@@ -675,8 +684,10 @@ fn render_tree_row(
     timeline: Arc<ConsoleTimeline>,
     weak: WeakEntity<AppView>,
     palette: &Palette,
+    cx: &App,
 ) -> AnyElement {
     let selected = reveal.is_some();
+    let mono = cx.theme().mono_font_family.clone();
     let value_color = match row.tone {
         ValueTone::String => palette.syntax_color("string"),
         ValueTone::Number => palette.syntax_color("number"),
@@ -709,6 +720,8 @@ fn render_tree_row(
             line.hover(|style| style.bg(palette.hover))
         })
         .when(branch, |line| line.cursor_pointer())
+        // The UI font for the Copy menu, which inherits it; the key and value are mono.
+        .font_family(cx.theme().font_family.clone())
         .child(
             div()
                 .w(px(12.0))
@@ -719,6 +732,7 @@ fn render_tree_row(
         .child(
             h_flex()
                 .flex_none()
+                .font_family(mono.clone())
                 .child(
                     div()
                         .text_color(palette.syntax_color("property"))
@@ -731,6 +745,7 @@ fn render_tree_row(
                 .flex_1()
                 .min_w_0()
                 .truncate()
+                .font_family(mono)
                 .text_color(value_color)
                 .child(row.text.clone()),
         )
