@@ -142,6 +142,12 @@ pub struct AppView {
     pub(crate) console_view: state::console::ConsoleView,
     /// The Console tab's text filter.
     pub(crate) console_filter_input: Entity<InputState>,
+    /// The Console's network tree focus, taken by a click on a row, for the arrow keys and
+    /// Ctrl+C (#197).
+    pub(crate) console_tree_focus: FocusHandle,
+    /// Set when an arrow key moved the tree's selection: the selected row scrolls into view at
+    /// its next prepaint.
+    pub(crate) console_reveal: std::rc::Rc<std::cell::Cell<bool>>,
     /// The script engine every send uses. `Arc` so it is cheap to clone into each background
     /// send task; `QuickJsEngine` needs no per-run state, a fresh QuickJS runtime is created for
     /// every script run (see `postino-script`).
@@ -382,6 +388,8 @@ impl AppView {
             response_consoles: HashMap::new(),
             console_view: Default::default(),
             console_filter_input,
+            console_tree_focus: cx.focus_handle(),
+            console_reveal: Default::default(),
             script_engine: Arc::new(QuickJsEngine),
             send_options,
             settings_category: SettingsCategory::default(),

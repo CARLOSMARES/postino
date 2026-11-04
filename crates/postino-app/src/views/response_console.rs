@@ -6,10 +6,14 @@
 //! thread, and from [`crate::state::console::ConsoleView`], which caches the visible tree rows.
 //! Nothing here parses or formats a body.
 
+use std::cell::Cell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui_kit::assets::IconName as Lucide;
+use gpui_kit::base::input::Copy;
 use gpui_kit::component::input::Input;
+use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui_kit::component::scroll::Scrollbar;
 use gpui_kit::component::*;
 use gpui_kit::prelude::*;
@@ -19,8 +23,8 @@ use rust_i18n::t;
 use postino_core::ConsoleLevel;
 
 use crate::state::console::{
-    ConsoleEntry, ConsoleFilter, ConsoleTimeline, EntrySource, NetworkDetail, TreeRow, ValueTone,
-    format_clock, tree_as_json,
+    ConsoleEntry, ConsoleFilter, ConsoleTimeline, CopyPart, EntrySource, NetworkDetail, TreeKey,
+    TreeRow, ValueTone, copy_text, format_clock, tree_as_json,
 };
 use crate::state::response_render::{format_duration, format_size};
 use crate::theme::metrics::{INPUT_PADDING_X, RADIUS_MD, RADIUS_SM};
@@ -304,7 +308,7 @@ impl AppView {
             });
 
         let detail = match (&timeline.network, open) {
-            (Some(detail), true) => Some(self.render_network_detail(detail, cx)),
+            (Some(detail), true) => Some(self.render_network_detail(detail, timeline, cx)),
             _ => None,
         };
         v_flex()
@@ -320,6 +324,7 @@ impl AppView {
     fn render_network_detail(
         &mut self,
         detail: &NetworkDetail,
+        timeline: &Arc<ConsoleTimeline>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let palette = cx.palette();
@@ -404,11 +409,40 @@ impl AppView {
             render_raw(detail, &palette, cx)
         } else {
             let rows = self.console_view.rows(detail);
+            let selected = self.console_view.selected.clone();
             let mut tree = v_flex();
             for (index, row) in rows.iter().enumerate() {
-                tree = tree.child(render_tree_row(index, row, weak.clone(), &palette));
+                let reveal = (selected.as_deref() == Some(row.path.as_str())).then(|| Reveal {
+                    scroll: self.response_scroll.clone(),
+                    pending: self.console_reveal.clone(),
+                });
+                tree = tree.child(render_tree_row(
+                    index,
+                    row,
+                    reveal,
+                    timeline.clone(),
+                    weak.clone(),
+                    &palette,
+                ));
             }
-            tree.into_any_element()
+            // A click on a row focuses the tree (gpui focuses a tracked handle on mouse down),
+            // so the arrow keys move the selection and Ctrl+C copies it (#197).
+            let key_timeline = timeline.clone();
+            let copy_timeline = timeline.clone();
+            div()
+                .track_focus(&self.console_tree_focus)
+                .on_key_down(cx.listener(move |view, event: &KeyDownEvent, _, cx| {
+                    view.on_console_tree_key(event, &key_timeline, cx);
+                }))
+                .on_action(cx.listener(move |view, _: &Copy, _, cx| {
+                    match view.console_view.selected.as_deref() {
+                        Some(path) => copy_row(&copy_timeline, path, CopyPart::Value, cx),
+                        // Nothing selected: the window's text selection, as everywhere else.
+                        None => cx.propagate(),
+                    }
+                }))
+                .child(tree)
+                .into_any_element()
         };
 
         v_flex()
@@ -429,6 +463,86 @@ impl AppView {
             )
             .into_any_element()
     }
+}
+
+impl AppView {
+    /// The keys of the focused network tree: Up and Down move one row, Home and End to the
+    /// first and last, Right opens a branch or goes to its first child, Left closes it or goes
+    /// to the parent.
+    fn on_console_tree_key(
+        &mut self,
+        event: &KeyDownEvent,
+        timeline: &ConsoleTimeline,
+        cx: &mut Context<Self>,
+    ) {
+        let keystroke = &event.keystroke;
+        let modifiers = keystroke.modifiers;
+        if modifiers.control || modifiers.alt || modifiers.platform || modifiers.shift {
+            return;
+        }
+        let key = match keystroke.key.as_str() {
+            "up" => TreeKey::Up,
+            "down" => TreeKey::Down,
+            "left" => TreeKey::Left,
+            "right" => TreeKey::Right,
+            "home" => TreeKey::Home,
+            "end" => TreeKey::End,
+            _ => return,
+        };
+        let Some(detail) = timeline.network.as_ref() else {
+            return;
+        };
+        cx.stop_propagation();
+        if self.console_view.navigate(key, detail) {
+            self.console_reveal.set(true);
+            cx.notify();
+        }
+    }
+}
+
+/// Writes `part` of the tree row at `path` to the clipboard.
+fn copy_row(timeline: &ConsoleTimeline, path: &str, part: CopyPart, cx: &mut App) {
+    let text = timeline
+        .network
+        .as_ref()
+        .and_then(|detail| copy_text(&detail.tree, path, part));
+    if let Some(text) = text {
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
+    }
+}
+
+/// A pending request to scroll the console so the selected tree row is fully visible, after an
+/// arrow key moved the selection.
+struct Reveal {
+    scroll: ScrollHandle,
+    pending: Rc<Cell<bool>>,
+}
+
+/// An empty canvas over the selected row that reads its bounds at prepaint and, when a reveal
+/// is pending, adjusts the console's scroll offset once and draws one more frame. The rows are
+/// not children of the scrolled element, so `ScrollHandle::scroll_to_item` cannot reach them.
+fn reveal_canvas(reveal: Reveal) -> impl IntoElement {
+    canvas(
+        move |row, window, _cx| {
+            if !reveal.pending.replace(false) {
+                return;
+            }
+            let view = reveal.scroll.bounds();
+            let mut offset = reveal.scroll.offset();
+            if row.top() < view.top() {
+                offset.y += view.top() - row.top();
+            } else if row.bottom() > view.bottom() {
+                offset.y -= row.bottom() - view.bottom();
+            } else {
+                return;
+            }
+            reveal.scroll.set_offset(offset);
+            window.refresh();
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .inset_0()
 }
 
 /// The label of a filter chip.
@@ -552,13 +666,17 @@ fn render_plain_entry(index: usize, entry: &ConsoleEntry, palette: &Palette) -> 
         .into_any_element()
 }
 
-/// One row of the network tree. A branch opens or closes on click.
+/// One row of the network tree. A click selects it, and opens or closes a branch; a right click
+/// selects it and opens the Copy menu. `reveal` is set on the selected row only.
 fn render_tree_row(
     index: usize,
     row: &TreeRow,
+    reveal: Option<Reveal>,
+    timeline: Arc<ConsoleTimeline>,
     weak: WeakEntity<AppView>,
     palette: &Palette,
 ) -> AnyElement {
+    let selected = reveal.is_some();
     let value_color = match row.tone {
         ValueTone::String => palette.syntax_color("string"),
         ValueTone::Number => palette.syntax_color("number"),
@@ -575,14 +693,21 @@ fn render_tree_row(
     });
     let path = row.path.clone();
     let branch = row.open.is_some();
+    let right_weak = weak.clone();
+    let right_path = path.clone();
+    let menu_path = path.clone();
     h_flex()
         .id(("console-tree-row", index))
+        .relative()
         .h(px(TREE_ROW_HEIGHT))
         .items_center()
         .gap(px(6.0))
         .pr(px(12.0))
         .pl(px(12.0 + row.depth as f32 * TREE_INDENT))
-        .hover(|style| style.bg(palette.hover))
+        .when(selected, |line| line.bg(palette.accent_subtle))
+        .when(!selected, |line| {
+            line.hover(|style| style.bg(palette.hover))
+        })
         .when(branch, |line| line.cursor_pointer())
         .child(
             div()
@@ -609,13 +734,40 @@ fn render_tree_row(
                 .text_color(value_color)
                 .child(row.text.clone()),
         )
-        .when(branch, |line| {
-            line.on_click(move |_, _, cx| {
-                let _ = weak.update(cx, |view, cx| {
+        .children(reveal.map(reveal_canvas))
+        .on_click(move |_, _, cx| {
+            let _ = weak.update(cx, |view, cx| {
+                view.console_view.select(&path);
+                if branch {
                     view.console_view.toggle(&path);
-                    cx.notify();
-                });
-            })
+                }
+                cx.notify();
+            });
+        })
+        .on_mouse_down(MouseButton::Right, move |_, _, cx| {
+            let _ = right_weak.update(cx, |view, cx| {
+                view.console_view.select(&right_path);
+                cx.notify();
+            });
+        })
+        .context_menu(move |menu, _, _| {
+            let item = |label: SharedString, part: CopyPart| {
+                let (timeline, path) = (timeline.clone(), menu_path.clone());
+                PopupMenuItem::new(label)
+                    .on_click(move |_, _, cx| copy_row(&timeline, &path, part, cx))
+            };
+            menu.item(item(
+                t!("response.console.copy_value").into_owned().into(),
+                CopyPart::Value,
+            ))
+            .item(item(
+                t!("response.console.copy_key").into_owned().into(),
+                CopyPart::Key,
+            ))
+            .item(item(
+                t!("response.console.copy_path").into_owned().into(),
+                CopyPart::Path,
+            ))
         })
         .into_any_element()
 }

@@ -715,6 +715,75 @@ pub fn tree_as_json(tree: &TreeValue) -> String {
     out
 }
 
+/// What a tree row's Copy writes (#197).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyPart {
+    /// The value: a string as its text (unquoted, whole, with its line breaks), any other leaf
+    /// as written, a branch as pretty JSON.
+    Value,
+    /// The key, such as `x-sample-profile`, or the index in an array.
+    Key,
+    /// The dotted path, such as `response.headers.x-sample-profile`.
+    Path,
+}
+
+/// The node at `path` (as [`TreeRow::path`] names it) and its key.
+fn find_node<'a>(tree: &'a TreeValue, path: &str) -> Option<(String, &'a TreeValue)> {
+    fn walk<'a>(value: &'a TreeValue, parent: &str, path: &str) -> Option<(String, &'a TreeValue)> {
+        for (key, child) in value.children()? {
+            let child_path = if parent.is_empty() {
+                key.clone()
+            } else {
+                format!("{parent}.{key}")
+            };
+            if child_path == path {
+                return Some((key, child));
+            }
+            // Keys may contain dots (`a.b`), so more than one child can be a prefix.
+            if path.starts_with(&format!("{child_path}."))
+                && let Some(found) = walk(child, &child_path, path)
+            {
+                return Some(found);
+            }
+        }
+        None
+    }
+    walk(tree, "", path)
+}
+
+/// The text Copy writes for the row at `path`, `None` when there is no such row.
+pub fn copy_text(tree: &TreeValue, path: &str, part: CopyPart) -> Option<String> {
+    let (key, value) = find_node(tree, path)?;
+    Some(match part {
+        CopyPart::Key => key,
+        CopyPart::Path => path.to_string(),
+        CopyPart::Value => match value {
+            TreeValue::String(text) => text.clone(),
+            TreeValue::Null => "null".to_string(),
+            TreeValue::Bool(value) => value.to_string(),
+            TreeValue::Number(number) => number.clone(),
+            branch => tree_as_json(branch),
+        },
+    })
+}
+
+/// A key that moves the tree's selection (#197).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeKey {
+    /// The row above.
+    Up,
+    /// The row below.
+    Down,
+    /// Closes an open branch, or goes to the parent.
+    Left,
+    /// Opens a closed branch, or goes to its first child.
+    Right,
+    /// The first row.
+    Home,
+    /// The last row.
+    End,
+}
+
 /// A time as the local `HH:MM:SS.mmm` clock.
 pub fn format_clock(time: SystemTime) -> String {
     chrono::DateTime::<chrono::Local>::from(time)
@@ -735,6 +804,9 @@ pub struct ConsoleView {
     pub network_open: bool,
     pub raw: bool,
     open: HashSet<String>,
+    /// The path of the selected tree row (#197), for Copy and the arrow keys. When a branch
+    /// closes over it, its closest visible ancestor becomes selected.
+    pub selected: Option<String>,
     /// The visible tree rows, rebuilt only when the open set or the response changes.
     rows: Arc<Vec<TreeRow>>,
     rows_built: bool,
@@ -754,6 +826,7 @@ impl ConsoleView {
             self.network_open = false;
             self.raw = false;
             self.open.clear();
+            self.selected = None;
             self.rows = Arc::default();
             self.rows_built = false;
         }
@@ -784,8 +857,78 @@ impl ConsoleView {
         if !self.rows_built {
             self.rows = Arc::new(tree_rows(&detail.tree, &self.open));
             self.rows_built = true;
+            self.selected = self
+                .selected_index(&self.rows)
+                .map(|index| self.rows[index].path.clone());
         }
         self.rows.clone()
+    }
+
+    /// Selects the row at `path`.
+    pub fn select(&mut self, path: &str) {
+        self.selected = Some(path.to_string());
+    }
+
+    /// The index in `rows` of the selected row, or of its closest visible ancestor.
+    fn selected_index(&self, rows: &[TreeRow]) -> Option<usize> {
+        let selected = self.selected.as_deref()?;
+        rows.iter()
+            .enumerate()
+            .filter(|(_, row)| {
+                selected == row.path
+                    || selected
+                        .strip_prefix(row.path.as_str())
+                        .is_some_and(|rest| rest.starts_with('.'))
+            })
+            .max_by_key(|(_, row)| row.path.len())
+            .map(|(index, _)| index)
+    }
+
+    /// Moves the selection with `key`, opening or closing branches for Left and Right. With
+    /// nothing selected, any key selects the first row. Returns whether anything changed.
+    pub fn navigate(&mut self, key: TreeKey, detail: &NetworkDetail) -> bool {
+        let rows = self.rows(detail);
+        let Some(last) = rows.len().checked_sub(1) else {
+            return false;
+        };
+        let Some(current) = self.selected_index(&rows) else {
+            self.select(&rows[0].path);
+            return true;
+        };
+        let row = &rows[current];
+        let target = match key {
+            TreeKey::Up => current.saturating_sub(1),
+            TreeKey::Down => (current + 1).min(last),
+            TreeKey::Home => 0,
+            TreeKey::End => last,
+            TreeKey::Right => match row.open {
+                Some(false) => {
+                    self.toggle(&row.path);
+                    return true;
+                }
+                // An open branch has at least one child, right below it.
+                Some(true) => current + 1,
+                None => current,
+            },
+            TreeKey::Left => match row.open {
+                Some(true) => {
+                    self.toggle(&row.path);
+                    return true;
+                }
+                _ => match row.depth.checked_sub(1) {
+                    Some(parent) => (0..current)
+                        .rev()
+                        .find(|&index| rows[index].depth == parent)
+                        .unwrap_or(current),
+                    None => current,
+                },
+            },
+        };
+        if target == current {
+            return false;
+        }
+        self.select(&rows[target].path);
+        true
     }
 
     /// Opens or closes the branch at `path`.
@@ -1067,5 +1210,114 @@ mod tests {
         let shown = quoted(&long);
         assert_eq!(shown, format!("\"{}…\"", "x".repeat(MAX_LEAF_CHARS)));
         assert!(!shown.contains('\n'));
+    }
+
+    fn detail(json: &str) -> NetworkDetail {
+        NetworkDetail {
+            tree: serde_json::from_str(json).expect("json"),
+            raw_request: Arc::from(""),
+            raw_response: None,
+        }
+    }
+
+    #[test]
+    fn copy_writes_the_value_key_or_path_of_a_row() {
+        let detail = detail(
+            r#"{"response":{"headers":{"date":"Wed","x-sample-profile":"self-signed"},
+            "body":"chunk 1\nchunk 2","status":200,"ok":true,"none":null,"a.b":{"c":1}}}"#,
+        );
+        let copy = |path: &str, part| copy_text(&detail.tree, path, part);
+        assert_eq!(
+            copy("response.headers.x-sample-profile", CopyPart::Value).as_deref(),
+            Some("self-signed")
+        );
+        assert_eq!(
+            copy("response.headers.x-sample-profile", CopyPart::Key).as_deref(),
+            Some("x-sample-profile")
+        );
+        assert_eq!(
+            copy("response.headers.date", CopyPart::Path).as_deref(),
+            Some("response.headers.date")
+        );
+        assert_eq!(
+            copy("response.body", CopyPart::Value).as_deref(),
+            Some("chunk 1\nchunk 2")
+        );
+        assert_eq!(
+            copy("response.status", CopyPart::Value).as_deref(),
+            Some("200")
+        );
+        assert_eq!(
+            copy("response.ok", CopyPart::Value).as_deref(),
+            Some("true")
+        );
+        assert_eq!(
+            copy("response.none", CopyPart::Value).as_deref(),
+            Some("null")
+        );
+        assert_eq!(
+            copy("response.headers", CopyPart::Value).as_deref(),
+            Some("{\n  \"date\": \"Wed\",\n  \"x-sample-profile\": \"self-signed\"\n}")
+        );
+        // A key with a dot is found through its own path.
+        assert_eq!(
+            copy("response.a.b.c", CopyPart::Value).as_deref(),
+            Some("1")
+        );
+        assert_eq!(copy("response.missing", CopyPart::Value), None);
+    }
+
+    #[test]
+    fn arrow_keys_move_the_selection_and_open_or_close_branches() {
+        let detail = detail(
+            r#"{"request":{"method":"GET"},"response":{"status":200,"h":{"a":"1"}},"env":"dev"}"#,
+        );
+        let mut view = ConsoleView::default();
+        view.sync("t", 1);
+        let selected = |view: &ConsoleView| view.selected.clone().unwrap_or_default();
+
+        // The first key selects the first row.
+        assert!(view.navigate(TreeKey::Down, &detail));
+        assert_eq!(selected(&view), "request");
+        assert!(view.navigate(TreeKey::Down, &detail));
+        assert_eq!(selected(&view), "response");
+        // Right opens, then goes to the first child; Down walks into the open branch.
+        assert!(view.navigate(TreeKey::Right, &detail));
+        assert_eq!(selected(&view), "response");
+        assert!(view.navigate(TreeKey::Right, &detail));
+        assert_eq!(selected(&view), "response.status");
+        assert!(view.navigate(TreeKey::Down, &detail));
+        assert_eq!(selected(&view), "response.h");
+        assert!(view.navigate(TreeKey::Right, &detail));
+        assert!(view.navigate(TreeKey::Right, &detail));
+        assert_eq!(selected(&view), "response.h.a");
+        // A leaf has nothing to open.
+        assert!(!view.navigate(TreeKey::Right, &detail));
+        // Left goes to the parent, then closes it.
+        assert!(view.navigate(TreeKey::Left, &detail));
+        assert_eq!(selected(&view), "response.h");
+        assert!(view.navigate(TreeKey::Left, &detail));
+        assert_eq!(selected(&view), "response.h");
+        assert!(view.navigate(TreeKey::End, &detail));
+        assert_eq!(selected(&view), "env");
+        assert!(!view.navigate(TreeKey::Down, &detail));
+        assert!(view.navigate(TreeKey::Home, &detail));
+        assert_eq!(selected(&view), "request");
+        assert!(!view.navigate(TreeKey::Up, &detail));
+    }
+
+    #[test]
+    fn closing_a_branch_selects_it_and_a_new_response_clears_the_selection() {
+        let detail = detail(r#"{"response":{"headers":{"date":"Wed"}}}"#);
+        let mut view = ConsoleView::default();
+        view.sync("t", 1);
+        view.expand_all(&detail);
+        view.select("response.headers.date");
+        view.toggle("response");
+        view.rows(&detail);
+        assert_eq!(view.selected.as_deref(), Some("response"));
+
+        view.sync("t", 2);
+        assert_eq!(view.selected, None);
     }
 }

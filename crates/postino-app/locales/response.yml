@@ -145,6 +145,21 @@ _version: 2
   es: "Contraer"
   gl: "Contraer"
   it: "Comprimi"
+"response.console.copy_value":
+  en: "Copy value"
+  es: "Copiar valor"
+  gl: "Copiar valor"
+  it: "Copia valore"
+"response.console.copy_key":
+  en: "Copy key"
+  es: "Copiar clave"
+  gl: "Copiar chave"
+  it: "Copia chiave"
+"response.console.copy_path":
+  en: "Copy path"
+  es: "Copiar ruta"
+  gl: "Copiar ruta"
+  it: "Copia percorso"
 "response.console.raw_request":
   en: "REQUEST"
   es: "PETICIÓN"
