@@ -399,7 +399,7 @@ fn body_rows(
                 return json_rows(&old, &new);
             }
         }
-        (Body::Form(old), Body::Form(new)) => {
+        (Body::Form(old), Body::Form(new)) | (Body::Multipart(old), Body::Multipart(new)) => {
             return key_value_rows(old, new, format_query_or_form_line, Kind::Field);
         }
         _ => {}

@@ -1,0 +1,25 @@
+POST {{baseUrl}}/echo
+
+::: body multipart
+note = hello
+handle = @@tanis
+document = @bodies/multipart-upload.txt
+# skip = no
+
+::: post
+test("text fields arrive as form fields", () => {
+  const form = res.json().form;
+  expect(form.note).toBe("hello");
+  expect(form.handle).toBe("@tanis");
+  expect(form.skip === undefined).toBe(true);
+});
+
+test("a @ value uploads the file", () => {
+  const file = res.json().files.document;
+  expect(file.filename).toBe("multipart-upload.txt");
+  expect(file.size).toBe(29);
+});
+
+::: docs
+A multipart body with text fields, a literal @, a file (relative to the workspace) and a disabled
+field.

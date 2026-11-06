@@ -39,8 +39,20 @@ enum BodyShape {
     /// A `application/x-www-form-urlencoded` body, decoded back into its `(key, value)` fields,
     /// in order.
     Form(Vec<(String, String)>),
+    /// A `multipart/form-data` body, decoded back into its parts, in order.
+    Multipart(Vec<MultipartPart>),
     /// Any other body, as text.
     Raw(String),
+}
+
+/// One part of a [`BodyShape::Multipart`].
+struct MultipartPart {
+    /// The field name.
+    name: String,
+    /// The file name of a file field. The snippet names the file, it never holds its contents.
+    file_name: Option<String>,
+    /// The text of a text field.
+    text: String,
 }
 
 /// Classifies the body of `request`. See [`BodyShape`].
@@ -50,11 +62,62 @@ fn body_shape(request: &ResolvedRequest) -> BodyShape {
         ResolvedBody::Bytes(bytes) => {
             if is_form_urlencoded(&request.headers) {
                 BodyShape::Form(decode_form_urlencoded(bytes))
+            } else if let Some(boundary) = multipart_boundary(&request.headers) {
+                BodyShape::Multipart(decode_multipart(bytes, &boundary))
             } else {
                 BodyShape::Raw(String::from_utf8_lossy(bytes).into_owned())
             }
         }
     }
+}
+
+/// The boundary of a `multipart/form-data` `Content-Type` in `headers`.
+fn multipart_boundary(headers: &[ResolvedField]) -> Option<String> {
+    headers.iter().find_map(|header| {
+        if !header.name.eq_ignore_ascii_case("content-type")
+            || !header
+                .value
+                .to_ascii_lowercase()
+                .starts_with("multipart/form-data")
+        {
+            return None;
+        }
+        header
+            .value
+            .split_once("boundary=")
+            .map(|(_, boundary)| boundary.trim().to_string())
+    })
+}
+
+/// Splits the bytes `postino-runner` encoded back into their parts.
+fn decode_multipart(bytes: &[u8], boundary: &str) -> Vec<MultipartPart> {
+    let text = String::from_utf8_lossy(bytes);
+    let delimiter = format!("--{boundary}");
+    text.split(delimiter.as_str())
+        .filter_map(|part| {
+            let (head, body) = part.trim_start_matches("\r\n").split_once("\r\n\r\n")?;
+            let quoted = |key: &str| {
+                let (_, rest) = head.split_once(&format!("{key}=\""))?;
+                rest.split_once('"').map(|(value, _)| value.to_string())
+            };
+            Some(MultipartPart {
+                name: quoted(" name")?,
+                file_name: quoted("filename"),
+                text: body.trim_end_matches("\r\n").to_string(),
+            })
+        })
+        .collect()
+}
+
+/// The headers a snippet writes: without a multipart `Content-Type`, since the library or tool
+/// sets its own with its own boundary.
+fn snippet_headers(request: &ResolvedRequest) -> Vec<&ResolvedField> {
+    let multipart = multipart_boundary(&request.headers).is_some();
+    request
+        .headers
+        .iter()
+        .filter(|header| !(multipart && header.name.eq_ignore_ascii_case("content-type")))
+        .collect()
 }
 
 /// Whether `headers` declares a `Content-Type` of `application/x-www-form-urlencoded`.
@@ -129,7 +192,7 @@ fn render_curl(request: &ResolvedRequest) -> String {
         lines.push(format!("-X {}", request.method));
     }
     lines.push(shell_quote(&request.url));
-    for header in &request.headers {
+    for header in snippet_headers(request) {
         lines.push(format!(
             "-H {}",
             shell_quote(&format!("{}: {}", header.name, header.value))
@@ -144,6 +207,15 @@ fn render_curl(request: &ResolvedRequest) -> String {
                     "--data-urlencode {}",
                     shell_quote(&format!("{key}={value}"))
                 ));
+            }
+        }
+        BodyShape::Multipart(parts) => {
+            for part in parts {
+                let field = match &part.file_name {
+                    Some(file) => format!("{}=@{file}", part.name),
+                    None => format!("{}={}", part.name, part.text),
+                };
+                lines.push(format!("-F {}", shell_quote(&field)));
             }
         }
     }
@@ -167,17 +239,37 @@ fn shell_quote(input: &str) -> String {
 /// Renders `request` as JavaScript using `fetch`.
 ///
 /// `headers` is only emitted when non-empty; `body` is only emitted when the request has one. A
-/// form body becomes `new URLSearchParams({...})`; any other body becomes a single string.
+/// form body becomes `new URLSearchParams({...})`, a multipart one a `FormData` built first; any
+/// other body becomes a single string.
 fn render_js_fetch(request: &ResolvedRequest) -> String {
     let mut out = String::new();
+    let shape = body_shape(request);
+    if let BodyShape::Multipart(parts) = &shape {
+        out.push_str("const form = new FormData();\n");
+        for part in parts {
+            let value = match &part.file_name {
+                Some(file) => format!(
+                    "new Blob([/* the contents of {file} */]), {}",
+                    js_string(file)
+                ),
+                None => js_string(&part.text),
+            };
+            out.push_str(&format!(
+                "form.append({}, {value});\n",
+                js_string(&part.name)
+            ));
+        }
+        out.push('\n');
+    }
+    let headers = snippet_headers(request);
     out.push_str(&format!("await fetch({}, {{\n", js_string(&request.url)));
     out.push_str(&format!(
         "  method: {},\n",
         js_string(&request.method.to_string())
     ));
-    if !request.headers.is_empty() {
+    if !headers.is_empty() {
         out.push_str("  headers: {\n");
-        for header in &request.headers {
+        for header in &headers {
             out.push_str(&format!(
                 "    {}: {},\n",
                 js_string(&header.name),
@@ -186,8 +278,9 @@ fn render_js_fetch(request: &ResolvedRequest) -> String {
         }
         out.push_str("  },\n");
     }
-    match body_shape(request) {
+    match shape {
         BodyShape::None => {}
+        BodyShape::Multipart(_) => out.push_str("  body: form,\n"),
         BodyShape::Raw(text) => out.push_str(&format!("  body: {},\n", js_string(&text))),
         BodyShape::Form(fields) => {
             out.push_str("  body: new URLSearchParams({\n");
@@ -222,9 +315,10 @@ fn render_python_requests(request: &ResolvedRequest) -> String {
         python_string(&request.method.to_string())
     ));
     out.push_str(&format!("    {},\n", python_string(&request.url)));
-    if !request.headers.is_empty() {
+    let headers = snippet_headers(request);
+    if !headers.is_empty() {
         out.push_str("    headers={\n");
-        for header in &request.headers {
+        for header in &headers {
             out.push_str(&format!(
                 "        {}: {},\n",
                 python_string(&header.name),
@@ -236,6 +330,21 @@ fn render_python_requests(request: &ResolvedRequest) -> String {
     match body_shape(request) {
         BodyShape::None => {}
         BodyShape::Raw(text) => out.push_str(&format!("    data={},\n", python_string(&text))),
+        BodyShape::Multipart(parts) => {
+            // `files` makes `requests` send multipart, also for text fields.
+            out.push_str("    files={\n");
+            for part in parts {
+                let value = match &part.file_name {
+                    Some(file) => format!("open({}, \"rb\")", python_string(file)),
+                    None => format!("(None, {})", python_string(&part.text)),
+                };
+                out.push_str(&format!(
+                    "        {}: {value},\n",
+                    python_string(&part.name)
+                ));
+            }
+            out.push_str("    },\n");
+        }
         BodyShape::Form(fields) => {
             out.push_str("    data={\n");
             for (key, value) in fields {
@@ -310,6 +419,44 @@ mod tests {
             }],
             body: ResolvedBody::Bytes(b"a=1&b=2".to_vec()),
         }
+    }
+
+    fn multipart_request() -> ResolvedRequest {
+        ResolvedRequest {
+            method: Method::Post,
+            url: "https://example.com/up".to_string(),
+            headers: vec![ResolvedField {
+                name: "Content-Type".to_string(),
+                value: "multipart/form-data; boundary=b1".to_string(),
+            }],
+            body: ResolvedBody::Bytes(
+                b"--b1\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\nhi\r\n\
+                  --b1\r\nContent-Disposition: form-data; name=\"doc\"; filename=\"a.png\"\r\n\
+                  Content-Type: application/octet-stream\r\n\r\n\r\n--b1--\r\n"
+                    .to_vec(),
+            ),
+        }
+    }
+
+    #[test]
+    fn multipart_snippets_name_the_files_and_drop_the_boundary() {
+        let curl = render_snippet(&multipart_request(), SnippetLanguage::Curl);
+        assert!(curl.contains("-F 'note=hi'"), "{curl}");
+        assert!(curl.contains("-F 'doc=@a.png'"), "{curl}");
+        assert!(!curl.contains("boundary"), "{curl}");
+
+        let js = render_snippet(&multipart_request(), SnippetLanguage::JsFetch);
+        assert!(js.contains("form.append(\"note\", \"hi\");"), "{js}");
+        assert!(js.contains("body: form"), "{js}");
+        assert!(!js.contains("boundary"), "{js}");
+
+        let python = render_snippet(&multipart_request(), SnippetLanguage::PythonRequests);
+        assert!(python.contains("\"note\": (None, \"hi\")"), "{python}");
+        assert!(
+            python.contains("\"doc\": open(\"a.png\", \"rb\")"),
+            "{python}"
+        );
+        assert!(!python.contains("boundary"), "{python}");
     }
 
     #[test]

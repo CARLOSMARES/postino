@@ -135,6 +135,4 @@ A request that is supposed to fail needs an entry in `expectation()` in `sample_
 
 ## Known gaps
 
-- There is no `multipart/form-data` body type yet. The server parses multipart, so a request can
-  be added when the type exists.
 - Postino keeps no cookie jar: `Set-Cookie` is shown, never stored or sent back.

@@ -27,6 +27,8 @@ pub enum BodyKind {
     Xml,
     /// A `application/x-www-form-urlencoded` body.
     Form,
+    /// A `multipart/form-data` body.
+    Multipart,
 }
 
 impl BodyKind {
@@ -38,16 +40,18 @@ impl BodyKind {
             Body::Text(_) => BodyKind::Text,
             Body::Xml(_) => BodyKind::Xml,
             Body::Form(_) => BodyKind::Form,
+            Body::Multipart(_) => BodyKind::Multipart,
         }
     }
 
     /// Every kind, in the order the body type selector lists them.
-    pub const ALL: [BodyKind; 5] = [
+    pub const ALL: [BodyKind; 6] = [
         BodyKind::None,
         BodyKind::Json,
         BodyKind::Text,
         BodyKind::Xml,
         BodyKind::Form,
+        BodyKind::Multipart,
     ];
 
     /// The label shown in the body type selector.
@@ -58,6 +62,7 @@ impl BodyKind {
             BodyKind::Text => t!("request.body.text").into_owned(),
             BodyKind::Xml => "XML".to_string(),
             BodyKind::Form => t!("request.body.form_urlencoded").into_owned(),
+            BodyKind::Multipart => "Multipart".to_string(),
         }
     }
 }
@@ -69,7 +74,7 @@ impl BodyKind {
 pub struct BodyStash {
     /// The raw text of the last JSON, Text or XML body.
     text: Option<String>,
-    /// The fields of the last Form body.
+    /// The fields of the last Form or Multipart body.
     form: Option<Vec<KeyValue>>,
 }
 
@@ -93,13 +98,14 @@ impl BodyStash {
 ///
 /// JSON, Text and XML share one raw text, since they are all plain strings under the hood:
 /// switching from JSON to Text (for example, while writing a body that is not valid JSON yet)
-/// keeps what was typed. Form fields cannot be recovered from raw text nor the other way round,
+/// keeps what was typed. Form and Multipart share their fields the same way. Fields cannot be
+/// recovered from raw text nor the other way round,
 /// so each keeps its own content in `stash`: switching from Form to JSON and back brings the
 /// fields back, and from JSON to None and back brings the text back.
 pub fn set_body_kind(request: &mut Request, kind: BodyKind, stash: &mut BodyStash) {
     match std::mem::take(&mut request.body) {
         Body::Json(text) | Body::Text(text) | Body::Xml(text) => stash.text = Some(text),
-        Body::Form(rows) => stash.form = Some(rows),
+        Body::Form(rows) | Body::Multipart(rows) => stash.form = Some(rows),
         Body::None => {}
     }
     request.body = match kind {
@@ -108,6 +114,7 @@ pub fn set_body_kind(request: &mut Request, kind: BodyKind, stash: &mut BodyStas
         BodyKind::Text => Body::Text(stash.text.take().unwrap_or_default()),
         BodyKind::Xml => Body::Xml(stash.text.take().unwrap_or_default()),
         BodyKind::Form => Body::Form(stash.form.take().unwrap_or_default()),
+        BodyKind::Multipart => Body::Multipart(stash.form.take().unwrap_or_default()),
     };
 }
 
@@ -117,7 +124,7 @@ pub fn set_body_kind(request: &mut Request, kind: BodyKind, stash: &mut BodyStas
 pub fn set_body_text(request: &mut Request, text: String) {
     match &mut request.body {
         Body::Json(existing) | Body::Text(existing) | Body::Xml(existing) => *existing = text,
-        Body::None | Body::Form(_) => {}
+        Body::None | Body::Form(_) | Body::Multipart(_) => {}
     }
 }
 

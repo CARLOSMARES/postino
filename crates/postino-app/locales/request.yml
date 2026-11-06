@@ -35,6 +35,11 @@ _version: 2
   es: "Formulario"
   gl: "Formulario"
   it: "Modulo"
+"request.body.multipart_hint":
+  en: "A value that starts with @ sends a file: @logo.png. Relative paths start at the workspace folder. Write @@ for a literal @."
+  es: "Un valor que empieza por @ envía un fichero: @logo.png. Las rutas relativas parten de la carpeta del espacio de trabajo. Escribe @@ para una @ literal."
+  gl: "Un valor que comeza por @ envía un ficheiro: @logo.png. As rutas relativas parten do cartafol do espazo de traballo. Escribe @@ para unha @ literal."
+  it: "Un valore che inizia con @ invia un file: @logo.png. I percorsi relativi partono dalla cartella dello spazio di lavoro. Scrivi @@ per una @ letterale."
 "request.body.format":
   en: "Format"
   es: "Formatear"

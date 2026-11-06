@@ -76,6 +76,11 @@ impl AppView {
         let environment = self.active_environment();
         let engine = self.script_engine.clone();
         let options = self.send_options.clone();
+        let base_dir = self
+            .state
+            .workspace
+            .as_ref()
+            .map(|workspace| workspace.root().to_path_buf());
         let mut session_env = self.state.session_env.clone();
 
         let task = cx.spawn(async move |this, cx| {
@@ -85,7 +90,7 @@ impl AppView {
             let (result, session_env, shape, console) = cx
                 .background_spawn(async move {
                     let started = Instant::now();
-                    let runner = Runner::new(engine, options);
+                    let runner = Runner::new(engine, options).with_base_dir(base_dir);
                     let result = runner.run(&request, &environment, &mut session_env);
                     let environment_name =
                         Some(environment.name.as_str()).filter(|name| !name.is_empty());

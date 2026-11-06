@@ -10,7 +10,7 @@ use postino_core::{
     variable_spans,
 };
 
-use crate::resolve::resolve;
+use crate::resolve::{MultipartFiles, resolve};
 use crate::session_env::SessionEnv;
 
 /// Where an [`UnknownVariable`] was found in the request.
@@ -65,7 +65,7 @@ pub fn preview(request: &Request, environment: &Environment, session_env: &Sessi
         session_env: session_env.as_slice(),
         environment: &environment.variables,
     };
-    let (resolved, warnings) = resolve(request, &scope);
+    let (resolved, warnings, _) = resolve(request, &scope, MultipartFiles::Names);
     let unknown_variables = find_unknown_variables(request, &scope);
     Preview {
         resolved,
@@ -120,7 +120,7 @@ fn find_unknown_variables(request: &Request, scope: &VarScope) -> Vec<UnknownVar
         Body::Json(text) | Body::Text(text) | Body::Xml(text) => {
             scan(text, VariableLocation::Body);
         }
-        Body::Form(fields) => {
+        Body::Form(fields) | Body::Multipart(fields) => {
             for field in fields.iter().filter(|field| field.enabled) {
                 scan(&field.key, VariableLocation::Body);
                 scan(&field.value, VariableLocation::Body);

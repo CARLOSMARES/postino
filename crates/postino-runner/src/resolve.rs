@@ -3,18 +3,33 @@
 //! the URL, applying the `::: auth` section and setting a default `Content-Type` when the body
 //! implies one.
 
+use std::path::{Path, PathBuf};
+
 use postino_core::{
-    ApiKeyLocation, Auth, Body, KeyValue, Request, ResolvedBody, ResolvedField, ResolvedRequest,
-    TemplateWarning, VarScope, functions, interpolate,
+    ApiKeyLocation, Auth, Body, KeyValue, MultipartValue, Request, ResolvedBody, ResolvedField,
+    ResolvedRequest, TemplateWarning, VarScope, functions, interpolate, multipart_value,
 };
+
+/// What to do with the files of a multipart body.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum MultipartFiles<'a> {
+    /// Read them, a relative path starting at this folder (the workspace), at the current
+    /// directory without one.
+    Read(Option<&'a Path>),
+    /// Leave their contents out: only the file names matter, for a preview.
+    Names,
+}
 
 /// Interpolates `request` into a [`ResolvedRequest`], collecting every [`TemplateWarning`] found
 /// along the way. This never fails: an unresolved marker is left as is in the output and reported
 /// as a warning instead.
+///
+/// The third value is why a file of a multipart body could not be read. Nothing can be sent then.
 pub(crate) fn resolve(
     request: &Request,
     scope: &VarScope,
-) -> (ResolvedRequest, Vec<TemplateWarning>) {
+    files: MultipartFiles<'_>,
+) -> (ResolvedRequest, Vec<TemplateWarning>, Option<String>) {
     let mut warnings = Vec::new();
 
     let interpolated_url = interpolate(&request.url, scope);
@@ -37,8 +52,23 @@ pub(crate) fn resolve(
         None => {}
     }
     let url = append_query(url, &request.query, auth_query, scope, &mut warnings);
-    let body = resolve_body(&request.body, scope, &mut warnings);
-    let headers = apply_default_content_type(headers, &request.body);
+    let mut file_error = None;
+    let (body, headers) = match &request.body {
+        Body::Multipart(fields) => match multipart_body(fields, scope, files, &mut warnings) {
+            Ok((bytes, content_type)) => (
+                ResolvedBody::Bytes(bytes),
+                set_multipart_content_type(headers, content_type),
+            ),
+            Err(error) => {
+                file_error = Some(error);
+                (ResolvedBody::None, headers)
+            }
+        },
+        body => (
+            resolve_body(body, scope, &mut warnings),
+            apply_default_content_type(headers, body),
+        ),
+    };
 
     let resolved = ResolvedRequest {
         method: request.method.clone(),
@@ -46,7 +76,143 @@ pub(crate) fn resolve(
         headers,
         body,
     };
-    (resolved, warnings)
+    (resolved, warnings, file_error)
+}
+
+/// Encodes the enabled fields of a multipart body, returning the bytes and the `Content-Type`
+/// with its boundary. Fails on a file that cannot be read.
+fn multipart_body(
+    fields: &[KeyValue],
+    scope: &VarScope,
+    files: MultipartFiles<'_>,
+    warnings: &mut Vec<TemplateWarning>,
+) -> Result<(Vec<u8>, String), String> {
+    /// One part, ready to encode: its name, file name and contents.
+    struct Part {
+        name: String,
+        file_name: Option<String>,
+        content: Vec<u8>,
+    }
+    let mut parts = Vec::new();
+    for field in fields.iter().filter(|field| field.enabled) {
+        let name = interpolate(&field.key, scope);
+        warnings.extend(name.warnings);
+        let value = interpolate(&field.value, scope);
+        warnings.extend(value.warnings);
+        let (file_name, content) = match multipart_value(&value.text) {
+            MultipartValue::Text(text) => (None, text.as_bytes().to_vec()),
+            MultipartValue::File(path) => {
+                let file_name = Path::new(path).file_name().map_or_else(
+                    || path.to_string(),
+                    |name| name.to_string_lossy().into_owned(),
+                );
+                let content = match files {
+                    MultipartFiles::Names => Vec::new(),
+                    MultipartFiles::Read(base) => {
+                        let full = multipart_path(path, base);
+                        std::fs::read(&full).map_err(|error| {
+                            format!(
+                                "cannot read {} for the field {}: {error}",
+                                full.display(),
+                                name.text
+                            )
+                        })?
+                    }
+                };
+                (Some(file_name), content)
+            }
+        };
+        parts.push(Part {
+            name: name.text,
+            file_name,
+            content,
+        });
+    }
+    // The boundary depends on the contents, so the same request always encodes the same bytes,
+    // and a boundary that shows up in a part is never used.
+    let mut seed: u64 = 0xcbf2_9ce4_8422_2325;
+    for part in &parts {
+        for byte in part.name.bytes().chain(part.content.iter().copied()) {
+            seed ^= u64::from(byte);
+            seed = seed.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    let mut boundary = format!("postino-{seed:016x}");
+    while parts
+        .iter()
+        .any(|part| contains(&part.content, boundary.as_bytes()))
+    {
+        boundary.push('x');
+    }
+    let mut bytes = Vec::new();
+    for part in &parts {
+        bytes.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        let name = quote_multipart(&part.name);
+        match &part.file_name {
+            Some(file_name) => bytes.extend_from_slice(
+                format!(
+                    "Content-Disposition: form-data; name=\"{name}\"; filename=\"{}\"\r\n\
+                     Content-Type: application/octet-stream\r\n\r\n",
+                    quote_multipart(file_name)
+                )
+                .as_bytes(),
+            ),
+            None => bytes.extend_from_slice(
+                format!("Content-Disposition: form-data; name=\"{name}\"\r\n\r\n").as_bytes(),
+            ),
+        }
+        bytes.extend_from_slice(&part.content);
+        bytes.extend_from_slice(b"\r\n");
+    }
+    bytes.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    Ok((bytes, format!("multipart/form-data; boundary={boundary}")))
+}
+
+/// The path of a multipart file: relative ones start at `base`.
+fn multipart_path(path: &str, base: Option<&Path>) -> PathBuf {
+    let path = Path::new(path);
+    match base {
+        Some(base) if path.is_relative() => base.join(path),
+        _ => path.to_path_buf(),
+    }
+}
+
+/// Whether `haystack` contains `needle`.
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
+/// Escapes a field or file name for a `Content-Disposition` header, as browsers do.
+fn quote_multipart(name: &str) -> String {
+    name.replace('"', "%22")
+        .replace('\r', "%0D")
+        .replace('\n', "%0A")
+}
+
+/// Sets the `Content-Type` of a multipart body. The boundary is only known here, so it replaces a
+/// `multipart/form-data` written by hand without one; any other value written by hand stays.
+fn set_multipart_content_type(
+    mut headers: Vec<ResolvedField>,
+    content_type: String,
+) -> Vec<ResolvedField> {
+    match headers
+        .iter_mut()
+        .find(|header| header.name.eq_ignore_ascii_case("content-type"))
+    {
+        Some(header) => {
+            let value = header.value.to_ascii_lowercase();
+            if value.starts_with("multipart/form-data") && !value.contains("boundary=") {
+                header.value = content_type;
+            }
+        }
+        None => headers.push(ResolvedField {
+            name: "Content-Type".to_string(),
+            value: content_type,
+        }),
+    }
+    headers
 }
 
 /// Prepends `http://` to a URL that names no scheme, as Postman does, so `localhost:8080/users`
@@ -236,6 +402,8 @@ fn resolve_body(
                 .join("&");
             ResolvedBody::Bytes(encoded.into_bytes())
         }
+        // Encoded by `multipart_body`, which can fail.
+        Body::Multipart(_) => ResolvedBody::None,
     }
 }
 
@@ -282,7 +450,7 @@ fn default_content_type(body: &Body) -> Option<&'static str> {
         Body::Json(_) => Some("application/json"),
         Body::Xml(_) => Some("application/xml"),
         Body::Form(_) => Some("application/x-www-form-urlencoded"),
-        Body::Text(_) | Body::None => None,
+        Body::Text(_) | Body::Multipart(_) | Body::None => None,
     }
 }
 
@@ -292,6 +460,110 @@ mod tests {
     use super::*;
     use postino_core::Method;
     use pretty_assertions::assert_eq;
+
+    /// [`super::resolve`], for tests about anything but multipart files.
+    fn resolve(request: &Request, scope: &VarScope) -> (ResolvedRequest, Vec<TemplateWarning>) {
+        let (resolved, warnings, _) = super::resolve(request, scope, MultipartFiles::Names);
+        (resolved, warnings)
+    }
+
+    fn multipart_request(fields: Vec<KeyValue>) -> Request {
+        let mut request = base_request("https://example.com");
+        request.body = Body::Multipart(fields);
+        request
+    }
+
+    fn content_type(resolved: &ResolvedRequest) -> &str {
+        resolved
+            .headers
+            .iter()
+            .find(|header| header.name == "Content-Type")
+            .map_or("", |header| header.value.as_str())
+    }
+
+    #[test]
+    fn multipart_encodes_text_and_file_fields() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("a.bin"), [0u8, 159, 146, 150]).expect("write");
+        let mut disabled = KeyValue::new("off", "x");
+        disabled.enabled = false;
+        let request = multipart_request(vec![
+            KeyValue::new("note", "{{word}}"),
+            KeyValue::new("doc", "@a.bin"),
+            KeyValue::new("handle", "@@me"),
+            disabled,
+        ]);
+        let variables = [KeyValue::new("word", "hi")];
+        let scope = VarScope {
+            environment: &variables,
+            ..VarScope::default()
+        };
+
+        let (resolved, warnings, error) =
+            super::resolve(&request, &scope, MultipartFiles::Read(Some(dir.path())));
+
+        assert_eq!(error, None);
+        assert!(warnings.is_empty());
+        let header = content_type(&resolved);
+        let boundary = header
+            .strip_prefix("multipart/form-data; boundary=")
+            .expect("a boundary");
+        let ResolvedBody::Bytes(bytes) = &resolved.body else {
+            panic!("expected bytes");
+        };
+        let mut expected = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\nhi\r\n\
+             --{boundary}\r\nContent-Disposition: form-data; name=\"doc\"; filename=\"a.bin\"\r\n\
+             Content-Type: application/octet-stream\r\n\r\n"
+        )
+        .into_bytes();
+        expected.extend_from_slice(&[0, 159, 146, 150]);
+        expected.extend_from_slice(
+            format!(
+                "\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"handle\"\r\n\r\n@me\r\n\
+                 --{boundary}--\r\n"
+            )
+            .as_bytes(),
+        );
+        assert_eq!(bytes, &expected);
+    }
+
+    #[test]
+    fn multipart_reports_a_file_it_cannot_read() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let request = multipart_request(vec![KeyValue::new("doc", "@missing.bin")]);
+        let (resolved, _, error) =
+            super::resolve(&request, &scope(), MultipartFiles::Read(Some(dir.path())));
+        assert_eq!(resolved.body, ResolvedBody::None);
+        let error = error.expect("an error");
+        assert!(
+            error.contains("missing.bin") && error.contains("doc"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn multipart_names_never_read_the_file() {
+        let request = multipart_request(vec![KeyValue::new("doc", "@/no/such/file.png")]);
+        let (resolved, _, error) = super::resolve(&request, &scope(), MultipartFiles::Names);
+        assert_eq!(error, None);
+        let ResolvedBody::Bytes(bytes) = &resolved.body else {
+            panic!("expected bytes");
+        };
+        assert!(String::from_utf8_lossy(bytes).contains("filename=\"file.png\""));
+    }
+
+    #[test]
+    fn a_handwritten_multipart_content_type_gets_the_boundary() {
+        let mut request = multipart_request(vec![KeyValue::new("a", "1")]);
+        request.headers = vec![KeyValue::new("content-type", "multipart/form-data")];
+        let (resolved, _) = resolve(&request, &scope());
+        assert!(resolved.headers[0].value.contains("boundary=postino-"));
+
+        request.headers = vec![KeyValue::new("Content-Type", "multipart/mixed; boundary=x")];
+        let (resolved, _) = resolve(&request, &scope());
+        assert_eq!(resolved.headers[0].value, "multipart/mixed; boundary=x");
+    }
 
     fn scope() -> VarScope<'static> {
         VarScope::default()

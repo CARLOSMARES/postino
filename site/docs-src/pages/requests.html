@@ -105,6 +105,7 @@ in = query
         <tr><td>Text</td><td>Plain code editor</td><td>The text, no default content type</td><td><code>::: body text</code></td></tr>
         <tr><td>XML</td><td>Code editor with XML highlighting</td><td>The text, <code>Content-Type: application/xml</code> by default</td><td><code>::: body xml</code></td></tr>
         <tr><td>Form</td><td>Key and value table</td><td>URL encoded fields, <code>application/x-www-form-urlencoded</code></td><td><code>::: body form</code></td></tr>
+        <tr><td>Multipart</td><td>Key and value table</td><td>The fields as <code>multipart/form-data</code>, with a generated boundary. See <a href="#multipart-bodies">Multipart bodies</a></td><td><code>::: body multipart</code></td></tr>
         <tr><td>None</td><td>Nothing</td><td>No body</td><td>No body section</td></tr>
     </tbody>
 </table></div>
@@ -133,10 +134,17 @@ client_id = {{clientId}}
 client_secret = {{clientSecret}}
 # scope = read write
 ```
-<div class="callout note">
-    <span class="title">Not available yet</span>
-    <p>Multipart (<code>multipart/form-data</code>) bodies and file uploads are not supported yet. Postman requests that use them are imported with an empty body and a warning.</p>
-</div>
+<h3>Multipart bodies</h3>
+<p>A <strong>Multipart</strong> body sends its fields as <code>multipart/form-data</code>, the usual way to upload files. A value that starts with <code>@</code> sends a file: the part carries the file's name and its contents as <code>application/octet-stream</code>. A relative path starts at the workspace folder, so uploads can be versioned next to the requests. Write <code>@@</code> for a value that really starts with <code>@</code>. Variables work in names and values, the path included.</p>
+```postino
+POST {{baseUrl}}/documents
+
+::: body multipart
+title = Invoice {{month}}
+handle = @@acme
+file = @fixtures/invoice.pdf
+```
+<p>Postino sets the <code>Content-Type</code> header with the boundary. A <code>Content-Type: multipart/form-data</code> header you wrote without a boundary gets it added. A file that cannot be read stops the send and the response panel says which one. The file is read on every send, and the Code snippet dialog names the file but leaves its contents out. In a pre script, <code>req.body</code> is the enabled fields as <code>key=value</code> pairs separated by <code>&amp;</code>, as in a form.</p>
 
 <h2>Scripts</h2>
 <p>The <strong>Pre-request</strong> tab holds JavaScript that runs before the request is sent; it can change the method, URL, headers and body, and set variables. The <strong>Post-response</strong> tab runs after the response arrives; it can check the response with tests and store values for later requests. Both are covered in <a href="scripting.html">Scripts and tests</a>.</p>

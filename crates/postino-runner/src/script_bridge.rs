@@ -110,7 +110,7 @@ fn body_to_script_text(body: &Body) -> String {
     match body {
         Body::None => String::new(),
         Body::Json(text) | Body::Text(text) | Body::Xml(text) => text.clone(),
-        Body::Form(fields) => join_form(&enabled_entries(fields)),
+        Body::Form(fields) | Body::Multipart(fields) => join_form(&enabled_entries(fields)),
     }
 }
 
@@ -126,6 +126,7 @@ fn body_from_script_text(original: &Body, text: String) -> Body {
         Body::Text(_) => Body::Text(text),
         Body::Xml(_) => Body::Xml(text),
         Body::Form(fields) => Body::Form(merge_back(fields, split_form(&text))),
+        Body::Multipart(fields) => Body::Multipart(merge_back(fields, split_form(&text))),
     }
 }
 

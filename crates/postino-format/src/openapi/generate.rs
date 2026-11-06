@@ -408,19 +408,10 @@ fn build_request(
     if let Some(body) = &operation.body {
         let (value, content_type) =
             build_body(&body.media_type, body.example.as_ref(), options.bodies);
-        if body.media_type == "multipart/form-data" {
-            push_unique(
-                warnings,
-                format!(
-                    "{}: multipart bodies are imported as URL encoded forms",
-                    spec.title
-                ),
-            );
-        }
         // Some specs declare an empty body on GET operations; a GET without one is the request.
         let empty = match &value {
             Body::Json(text) | Body::Text(text) | Body::Xml(text) => text.is_empty(),
-            Body::Form(fields) => fields.is_empty(),
+            Body::Form(fields) | Body::Multipart(fields) => fields.is_empty(),
             Body::None => true,
         };
         if !(empty && matches!(operation.method, Method::Get | Method::Head)) {
@@ -568,7 +559,11 @@ fn build_body(media_type: &str, example: Option<&Value>, fill: bool) -> (Body, O
                 .collect(),
             _ => Vec::new(),
         };
-        (Body::Form(fields), None)
+        if media_type == "multipart/form-data" {
+            (Body::Multipart(fields), None)
+        } else {
+            (Body::Form(fields), None)
+        }
     } else if media_type.ends_with("/xml") || media_type.ends_with("+xml") {
         let text = example
             .and_then(Value::as_str)

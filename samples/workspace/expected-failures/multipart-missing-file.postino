@@ -1,0 +1,9 @@
+POST {{baseUrl}}/echo
+
+::: body multipart
+document = @bodies/no-such-file.txt
+
+::: post
+test("never runs: the file cannot be read, so nothing is sent", () => {
+  expect(true).toBe(false);
+});

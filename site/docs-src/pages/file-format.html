@@ -72,6 +72,7 @@ Creates a user. Needs an admin token.
         <tr><td><code>::: body text</code></td><td>Raw text</td></tr>
         <tr><td><code>::: body xml</code></td><td>Raw XML text</td></tr>
         <tr><td><code>::: body form</code></td><td>URL-encoded form fields, <code>key = value</code> lines</td></tr>
+        <tr><td><code>::: body multipart</code></td><td><code>multipart/form-data</code> fields, <code>key = value</code> lines; <code>@path</code> sends a file, <code>@@text</code> is the text <code>@text</code></td></tr>
         <tr><td><code>::: pre</code></td><td>Pre-request JavaScript</td></tr>
         <tr><td><code>::: post</code></td><td>Post-response JavaScript</td></tr>
         <tr><td><code>::: docs</code></td><td>Free notes in Markdown, never sent</td></tr>
@@ -87,7 +88,7 @@ Creates a user. Needs an admin token.
 </ul>
 
 <h3>Key and value lines</h3>
-<p>The <code>query</code> and <code>body form</code> sections use the same line format:</p>
+<p>The <code>query</code>, <code>body form</code> and <code>body multipart</code> sections use the same line format:</p>
 <ul>
     <li><code>key = value</code>, split at the first <code>=</code>, both sides trimmed. A value can contain <code>=</code>.</li>
     <li>A line starting with <code>#</code> is a disabled entry.</li>

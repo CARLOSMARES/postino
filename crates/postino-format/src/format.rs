@@ -52,7 +52,7 @@ pub enum ParseErrorKind {
     #[error("missing body type, expected \"::: body <type>\"")]
     MissingBodyType,
     /// `::: body <type>` uses a type that is not `json`, `text`, `xml` or `form`.
-    #[error("unknown body type {0:?}, expected json, text, xml or form")]
+    #[error("unknown body type {0:?}, expected json, text, xml, form or multipart")]
     UnknownBodyType(String),
     /// `::: auth` was written without a type.
     #[error("missing auth type, expected \"::: auth <type>\"")]
@@ -287,6 +287,7 @@ fn parse_body_section(
         "text" => Ok(Body::Text(join_content(content))),
         "xml" => Ok(Body::Xml(join_content(content))),
         "form" => Ok(Body::Form(parse_key_value_lines(content))),
+        "multipart" => Ok(Body::Multipart(parse_key_value_lines(content))),
         other => Err(ParseError {
             line: marker_line,
             kind: ParseErrorKind::UnknownBodyType(other.to_string()),
@@ -542,6 +543,10 @@ pub(crate) fn build_sections(request: &Request) -> Vec<(String, Vec<String>)> {
             "form",
             fields.iter().map(format_query_or_form_line).collect(),
         )),
+        Body::Multipart(fields) => Some((
+            "multipart",
+            fields.iter().map(format_query_or_form_line).collect(),
+        )),
     };
     if let Some((type_name, content)) = body_section {
         sections.push((format!("::: body {type_name}"), content));
@@ -598,6 +603,23 @@ fn write_header_line(out: &mut String, entry: &KeyValue) {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn a_multipart_body_round_trips() {
+        let text = "POST https://example.com\n\n::: body multipart\nnote = hi\ndoc = @a/b.png\n# old = 1\n";
+        let request = parse(text).expect("valid multipart body");
+        let mut disabled = KeyValue::new("old", "1");
+        disabled.enabled = false;
+        assert_eq!(
+            request.body,
+            Body::Multipart(vec![
+                KeyValue::new("note", "hi"),
+                KeyValue::new("doc", "@a/b.png"),
+                disabled,
+            ])
+        );
+        assert_eq!(parse(&serialize(&request)).expect("round trip"), request);
+    }
 
     #[test]
     fn minimal_request_round_trips() {

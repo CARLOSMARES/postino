@@ -104,7 +104,7 @@ line starting with `::: ` (three colons and a space): `::: <kind> [argument]`.
   `body`, `pre`, `post` and `docs`.
 - `query`, `pre`, `post` and `docs` take no argument; giving one (`::: pre extra`) is
   `section "pre" does not take an argument`.
-- `body` requires exactly one argument, its type: `json`, `text`, `xml` or `form`. No argument at
+- `body` requires exactly one argument, its type: `json`, `text`, `xml`, `form` or `multipart`. No argument at
   all is `missing body type`; any other word is `unknown body type`.
 - `auth` requires exactly one argument, its type: `basic`, `bearer` or `apikey`. No argument at
   all is `missing auth type`; any other word is `unknown auth type`.
@@ -169,6 +169,11 @@ so a pre script's `vars.set()` reaches it:
 - `json`, `text`, `xml`: the section content is kept as raw text, joined back with `\n`.
 - `form`: the content uses the same `key = value` lines as `query` (including the `#` disable
   prefix and the no-`=` rule).
+- `multipart`: the same lines as `form`, sent as `multipart/form-data`. A value `@path` sends that
+  file (a relative path starts at the workspace folder) and `@@text` is the text `@text`. The
+  model is `Body::Multipart(Vec<KeyValue>)`, read with `postino_core::multipart_value`. The runner
+  encodes it, with a boundary derived from the contents, and reads the files on every send; a
+  file it cannot read stops the send with `HttpError::InvalidRequest`.
 - Unlike the other sections, `body` is still written to the file even when its text is empty:
   `Body::Json(String::new())` serializes as a `::: body json` heading with no content lines
   underneath, because the body's *type* is information that would otherwise be lost. This is the

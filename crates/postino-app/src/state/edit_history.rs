@@ -51,7 +51,7 @@ impl Snapshot {
         let body = match &request.body {
             Body::None => 0,
             Body::Json(text) | Body::Text(text) | Body::Xml(text) => text.len(),
-            Body::Form(form) => rows(form),
+            Body::Form(form) | Body::Multipart(form) => rows(form),
         };
         let auth = match &request.auth {
             Auth::None => 0,

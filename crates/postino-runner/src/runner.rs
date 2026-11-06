@@ -2,6 +2,7 @@
 //! scope, run the pre script, interpolate, send the request, run the post script, and collect a
 //! complete [`RunResult`] for the UI.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 
@@ -9,7 +10,7 @@ use postino_core::{Environment, KeyValue, Request, ResolvedRequest, Response, Va
 use postino_http::{Client, HttpError, SendOptions};
 use postino_script::{PostContext, PreContext, ScriptEngine};
 
-use crate::resolve::resolve;
+use crate::resolve::{MultipartFiles, resolve};
 use crate::result::{FailedStage, RunResult};
 use crate::script_bridge::{
     apply_script_request, resolved_to_script_request, to_script_request, to_script_response,
@@ -24,6 +25,8 @@ use crate::session_env::SessionEnv;
 pub struct Runner {
     engine: Arc<dyn ScriptEngine>,
     options: SendOptions,
+    /// Where the relative paths of multipart files start: the workspace.
+    base_dir: Option<PathBuf>,
 }
 
 impl Runner {
@@ -31,7 +34,18 @@ impl Runner {
     /// with `options`.
     #[must_use]
     pub fn new(engine: Arc<dyn ScriptEngine>, options: SendOptions) -> Self {
-        Self { engine, options }
+        Self {
+            engine,
+            options,
+            base_dir: None,
+        }
+    }
+
+    /// Makes the relative paths of multipart files start at `base_dir`, the workspace folder.
+    #[must_use]
+    pub fn with_base_dir(mut self, base_dir: Option<PathBuf>) -> Self {
+        self.base_dir = base_dir;
+        self
     }
 
     /// Runs `request` against `environment`, applying any environment changes the scripts make
@@ -131,7 +145,11 @@ impl Runner {
             environment: &environment.variables,
         };
         let started = Instant::now();
-        let (resolved, warnings) = resolve(&working_request, &scope);
+        let (resolved, warnings, file_error) = resolve(
+            &working_request,
+            &scope,
+            MultipartFiles::Read(self.base_dir.as_deref()),
+        );
         log::trace!(
             "interpolated in {} us, {} warnings",
             started.elapsed().as_micros(),
@@ -140,7 +158,11 @@ impl Runner {
 
         // 3. Send.
         let sent_at = SystemTime::now();
-        let response = match send(&resolved) {
+        let sent = match file_error {
+            Some(error) => Err(HttpError::InvalidRequest(error)),
+            None => send(&resolved),
+        };
+        let response = match sent {
             Ok(response) => response,
             Err(error) => {
                 return RunResult {

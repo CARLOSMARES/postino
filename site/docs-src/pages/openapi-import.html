@@ -110,7 +110,8 @@ spec:
         <tr><td>Header parameter</td><td>A header, disabled when optional. <code>Accept</code>, <code>Content-Type</code> and <code>Authorization</code> are skipped, as OpenAPI says</td></tr>
         <tr><td>Cookie parameter</td><td>A <code>Cookie</code> header</td></tr>
         <tr><td>JSON body (<code>application/json</code>, <code>*+json</code>)</td><td><code>::: body json</code>, with a <code>Content-Type</code> header when the type is not <code>application/json</code></td></tr>
-        <tr><td>Form body (URL encoded or multipart)</td><td><code>::: body form</code>; multipart is sent URL encoded, with a warning</td></tr>
+        <tr><td>URL encoded form body</td><td><code>::: body form</code></td></tr>
+        <tr><td>Multipart body</td><td><code>::: body multipart</code>; a file field needs its <code>@path</code> filled in</td></tr>
         <tr><td>XML and text bodies</td><td><code>::: body xml</code> or <code>text</code>, with their <code>Content-Type</code></td></tr>
         <tr><td>HTTP basic</td><td>Basic auth with <code>{{&lt;scheme&gt;Username}}</code> and <code>{{&lt;scheme&gt;Password}}</code></td></tr>
         <tr><td>HTTP bearer, OAuth 2 and OpenID Connect</td><td>Bearer auth with <code>{{&lt;scheme&gt;}}</code>. OAuth 2 and OpenID Connect get a warning: the token has to be obtained separately</td></tr>

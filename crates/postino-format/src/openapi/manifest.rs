@@ -216,7 +216,7 @@ fn body_hash(body: &Body) -> String {
         Body::Json(text) => format!("json\n{text}"),
         Body::Text(text) => format!("text\n{text}"),
         Body::Xml(text) => format!("xml\n{text}"),
-        Body::Form(fields) => {
+        Body::Form(fields) | Body::Multipart(fields) => {
             let mut text = "form\n".to_string();
             for field in fields {
                 text.push_str(&format!("{}={}\n", field.key, field.value));
@@ -238,7 +238,9 @@ fn body_keys(body: &Body) -> Vec<String> {
             Ok(serde_json::Value::Object(map)) => map.keys().cloned().collect(),
             _ => Vec::new(),
         },
-        Body::Form(fields) => fields.iter().map(|field| field.key.clone()).collect(),
+        Body::Form(fields) | Body::Multipart(fields) => {
+            fields.iter().map(|field| field.key.clone()).collect()
+        }
         _ => Vec::new(),
     }
 }

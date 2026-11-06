@@ -4973,6 +4973,7 @@ dependencies = [
  "postino-workspace",
  "pretty_assertions",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 

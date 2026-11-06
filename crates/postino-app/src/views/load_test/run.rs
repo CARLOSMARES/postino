@@ -152,7 +152,12 @@ impl AppView {
         let session_env = self.state.session_env.clone();
         let engine = self.script_engine.clone();
         let options = self.send_options.clone();
-        let runner = Arc::new(Runner::new(engine, options));
+        let base_dir = self
+            .state
+            .workspace
+            .as_ref()
+            .map(|workspace| workspace.root().to_path_buf());
+        let runner = Arc::new(Runner::new(engine, options).with_base_dir(base_dir));
         let run_number = self
             .state
             .workspace

@@ -18,7 +18,7 @@ mod request;
 mod response;
 
 pub use auth::{ApiKeyLocation, Auth};
-pub use body::Body;
+pub use body::{Body, MultipartValue, multipart_value};
 pub use environment::Environment;
 pub use functions::{Arg, FunctionError};
 pub use interpolate::{

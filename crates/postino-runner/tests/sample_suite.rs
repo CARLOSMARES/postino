@@ -132,6 +132,7 @@ fn runner(invalid_certificates: InvalidCertificates) -> Runner {
             ..SendOptions::default()
         },
     )
+    .with_base_dir(Some(samples_dir().join("workspace")))
 }
 
 /// Every request of the tree in sidebar order, folders first.
@@ -182,6 +183,7 @@ fn expectation(id: &str) -> Expect {
         "expected-failures/connection-refused.postino"
         | "expected-failures/dropped-connection.postino"
         | "expected-failures/too-many-redirects.postino"
+        | "expected-failures/multipart-missing-file.postino"
         | "expected-failures/invalid-url.postino" => Expect::SendFails,
         "expected-failures/post-script-throws.postino"
         | "expected-failures/post-json-parse.postino"

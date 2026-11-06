@@ -31,8 +31,8 @@ description: Frequently asked questions about Postino: accounts, cloud sync, pri
 <h2>Can a script send another request?</h2>
 <p>No. Run the requests one after the other and pass values between them with <code>env.set()</code>. For a sequence that runs many times, put the requests in a folder and load test it: each virtual user runs them in order.</p>
 
-<h2>Does Postino support GraphQL, WebSockets, gRPC or multipart uploads?</h2>
-<p>Not yet. Postino sends HTTP requests with JSON, XML, text or URL-encoded form bodies. A GraphQL query can be sent as a JSON body to the GraphQL endpoint. Multipart form data, file uploads, WebSockets and gRPC are not supported.</p>
+<h2>Does Postino support GraphQL, WebSockets or gRPC?</h2>
+<p>Not yet. Postino sends HTTP requests with JSON, XML, text, URL-encoded form or <a href="requests.html#multipart-bodies">multipart</a> bodies. A GraphQL query can be sent as a JSON body to the GraphQL endpoint. WebSockets and gRPC are not supported.</p>
 
 <h2>Is there an OAuth 2.0 helper?</h2>
 <p>Not yet. Get a token with a request to the token endpoint (a <code>::: body form</code> with <code>grant_type</code>, <code>client_id</code> and <code>client_secret</code>), save it with <code>env.set()</code> in the post-response script and send it with the <a href="requests.html#authentication">Auth tab</a> set to <strong>Bearer</strong> and <code>{{token}}</code>.</p>

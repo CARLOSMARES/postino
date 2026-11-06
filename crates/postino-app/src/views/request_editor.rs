@@ -100,7 +100,7 @@ struct BuildKey {
 impl BuildKey {
     fn of(tab_id: &str, request: &Request) -> Self {
         let form_len = match &request.body {
-            Body::Form(rows) => rows.len(),
+            Body::Form(rows) | Body::Multipart(rows) => rows.len(),
             _ => 0,
         };
         Self {
@@ -271,7 +271,7 @@ fn body_language(body: &Body) -> Option<(&str, &'static str)> {
         // and still highlights tags and attributes reasonably well for a preview (see this
         // crate's Cargo.toml for the exact tree-sitter features enabled).
         Body::Xml(text) => Some((text.as_str(), "html")),
-        Body::None | Body::Form(_) => None,
+        Body::None | Body::Form(_) | Body::Multipart(_) => None,
     }
 }
 
@@ -444,7 +444,7 @@ impl RequestEditorEntities {
     /// after an undo or redo, never per render.
     fn resync_values(&self, request: &Request, window: &mut Window, cx: &mut Context<AppView>) {
         let form: &[KeyValue] = match &request.body {
-            Body::Form(rows) => rows,
+            Body::Form(rows) | Body::Multipart(rows) => rows,
             _ => &[],
         };
         for (kind, rows) in [
@@ -547,7 +547,7 @@ impl RequestEditorEntities {
         self.query =
             KeyValueTableEntities::build(tab_id, &request.query, RowKind::Query, window, cx);
         self.form = match &request.body {
-            Body::Form(rows) => {
+            Body::Form(rows) | Body::Multipart(rows) => {
                 KeyValueTableEntities::build(tab_id, rows, RowKind::Form, window, cx)
             }
             _ => KeyValueTableEntities::default(),
@@ -637,7 +637,7 @@ fn rows_for_mut(request: &mut Request, kind: RowKind) -> Option<&mut Vec<KeyValu
         RowKind::Headers => Some(&mut request.headers),
         RowKind::Query => Some(&mut request.query),
         RowKind::Form => match &mut request.body {
-            Body::Form(rows) => Some(rows),
+            Body::Form(rows) | Body::Multipart(rows) => Some(rows),
             _ => None,
         },
     }
@@ -811,7 +811,7 @@ impl AppView {
                 RowKind::Headers => request.headers.len(),
                 RowKind::Query => request.query.len(),
                 RowKind::Form => match &request.body {
-                    Body::Form(rows) => rows.len(),
+                    Body::Form(rows) | Body::Multipart(rows) => rows.len(),
                     _ => 0,
                 },
             })
@@ -1323,6 +1323,29 @@ impl AppView {
                 &self.request_editor.form,
                 cx,
             ),
+            Body::Multipart(rows) => {
+                let palette = cx.palette();
+                v_flex()
+                    .id("request-body-multipart")
+                    .size_full()
+                    .overflow_y_scroll()
+                    .gap(px(8.0))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(12.0))
+                            .text_color(palette.fg_subtle)
+                            .child(t!("request.body.multipart_hint")),
+                    )
+                    .child(div().flex_none().child(self.render_key_value_table(
+                        tab_id,
+                        RowKind::Form,
+                        rows,
+                        &self.request_editor.form,
+                        cx,
+                    )))
+                    .into_any_element()
+            }
             Body::Json(_) | Body::Text(_) | Body::Xml(_) => {
                 render_editor_or_placeholder(&self.request_editor.body_editor, cx)
             }
