@@ -116,6 +116,24 @@ pub(crate) fn write_folder(
     Ok(())
 }
 
+/// Removes what a failed import wrote: its new collection folder `target` and the `created` files
+/// outside of it, the environments. Best effort, the import's own error is the one to report.
+pub(crate) fn undo_import(root: &Path, target: &Path, created: &[String]) {
+    if let Err(error) = fs::remove_dir_all(target)
+        && target.exists()
+    {
+        log::warn!("could not undo the import in {}: {error}", target.display());
+    }
+    for id in created {
+        let path = root.join(id);
+        if path.exists()
+            && let Err(error) = fs::remove_file(&path)
+        {
+            log::warn!("could not undo the import of {id}: {error}");
+        }
+    }
+}
+
 /// Finds a filesystem path inside `dir` for `sanitized_name` that does not exist yet, appending
 /// ` (2)`, ` (3)`, ... to the name until one is free. Used for folders, which have no extension
 /// (including the new top-level collection folder itself).

@@ -33,7 +33,6 @@ use crate::views::components::{
 use telaio_ui::components::text_field::FIELD_HEIGHT;
 
 use super::import_menu::PendingImport;
-use super::openapi_import::PendingOpenApi;
 use super::root::AppView;
 
 /// Width of the dialog.
@@ -49,8 +48,6 @@ pub(crate) enum NewWorkspacePurpose {
     Example,
     /// An empty folder that receives this Postman export once it is open.
     Import(PendingImport),
-    /// An empty folder that receives this OpenAPI import once it is open (GitHub #201).
-    OpenApi(PendingOpenApi),
 }
 
 impl NewWorkspacePurpose {
@@ -58,9 +55,7 @@ impl NewWorkspacePurpose {
     fn content(&self) -> NewWorkspaceContent {
         match self {
             NewWorkspacePurpose::Example => NewWorkspaceContent::Example,
-            NewWorkspacePurpose::Import(_) | NewWorkspacePurpose::OpenApi(_) => {
-                NewWorkspaceContent::Empty
-            }
+            NewWorkspacePurpose::Import(_) => NewWorkspaceContent::Empty,
         }
     }
 }
@@ -212,12 +207,6 @@ fn render_form(
                 |name| name.to_string_lossy().into_owned(),
             );
             t!("shell.new_workspace.import_note", file = file)
-        }
-        Some(NewWorkspacePurpose::OpenApi(pending)) => {
-            t!(
-                "openapi.new_workspace_note",
-                name = pending.plan.root.name.clone()
-            )
         }
         _ => t!("shell.new_workspace.example_note"),
     };
@@ -402,23 +391,6 @@ impl AppView {
                         window,
                         cx,
                     );
-                });
-            }
-            NewWorkspacePurpose::OpenApi(pending) => {
-                self.when_workspace_opens(window, cx, move |view, window, cx| {
-                    match view.import_openapi(&pending.plan, &pending.excluded, &pending.origin, cx)
-                    {
-                        Ok(report) => super::openapi_import::show_report(
-                            &pending.plan.root.name,
-                            &report,
-                            window,
-                            cx,
-                        ),
-                        Err(error) => {
-                            view.workspace_error = Some(error);
-                            cx.notify();
-                        }
-                    }
                 });
             }
         }

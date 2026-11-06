@@ -1,0 +1,157 @@
+# The destination of an import and the import wizard's shared strings. Glossary and rules: docs/i18n.md
+_version: 2
+"import.dest.title":
+  en: "Destination"
+  es: "Destino"
+  gl: "Destino"
+  it: "Destinazione"
+"import.dest.no_workspace":
+  en: "You have no workspace yet. A new one will hold the collection. Nothing is written until you confirm."
+  es: "Aún no tienes ningún espacio de trabajo. Se creará uno para guardar la colección. No se escribe nada hasta que confirmes."
+  gl: "Aínda non tes ningún espazo de traballo. Crearase un para gardar a colección. Non se escribe nada ata que confirmes."
+  it: "Non hai ancora uno spazio di lavoro. Ne verrà creato uno per la raccolta. Non viene scritto nulla finché non confermi."
+"import.dest.new":
+  en: "New workspace"
+  es: "Espacio de trabajo nuevo"
+  gl: "Espazo de traballo novo"
+  it: "Nuovo spazio di lavoro"
+"import.dest.open_existing":
+  en: "Open existing folder..."
+  es: "Abrir carpeta existente..."
+  gl: "Abrir cartafol existente..."
+  it: "Apri cartella esistente..."
+"import.dest.name":
+  en: "Workspace name"
+  es: "Nombre del espacio de trabajo"
+  gl: "Nome do espazo de traballo"
+  it: "Nome dello spazio di lavoro"
+"import.dest.will_create":
+  en: "Will be created in"
+  es: "Se creará en"
+  gl: "Crearase en"
+  it: "Verrà creato in"
+"import.dest.folder":
+  en: "Folder"
+  es: "Carpeta"
+  gl: "Cartafol"
+  it: "Cartella"
+"import.dest.choose":
+  en: "Choose..."
+  es: "Elegir..."
+  gl: "Escoller..."
+  it: "Scegli..."
+"import.dest.note":
+  en: "A workspace is a folder with your requests as .postino files."
+  es: "Un espacio de trabajo es una carpeta con tus peticiones como ficheros .postino."
+  gl: "Un espazo de traballo é un cartafol coas túas peticións como ficheiros .postino."
+  it: "Uno spazio di lavoro è una cartella con le tue richieste come file .postino."
+"import.dest.current":
+  en: "Current workspace: %{name}"
+  es: "Espacio de trabajo actual: %{name}"
+  gl: "Espazo de traballo actual: %{name}"
+  it: "Spazio di lavoro attuale: %{name}"
+"import.dest.recent":
+  en: "Another recent workspace"
+  es: "Otro espacio de trabajo reciente"
+  gl: "Outro espazo de traballo recente"
+  it: "Un altro spazio di lavoro recente"
+"import.dest.adds_folder":
+  en: "It will be added as the folder %{collection}/ inside %{workspace}."
+  es: "Se añadirá como carpeta %{collection}/ dentro de %{workspace}."
+  gl: "Engadirase como cartafol %{collection}/ dentro de %{workspace}."
+  it: "Verrà aggiunta come cartella %{collection}/ in %{workspace}."
+"import.dest.name_taken":
+  en: "%{path} already exists. %{suggested} is free."
+  es: "Ya existe %{path}. %{suggested} está libre."
+  gl: "Xa existe %{path}. %{suggested} está libre."
+  it: "%{path} esiste già. %{suggested} è libero."
+"import.dest.use_suggested":
+  en: "Use %{suggested}"
+  es: "Usar %{suggested}"
+  gl: "Usar %{suggested}"
+  it: "Usa %{suggested}"
+"import.dest.choose_other":
+  en: "Choose another folder"
+  es: "Elegir otra carpeta"
+  gl: "Escoller outro cartafol"
+  it: "Scegli un'altra cartella"
+"import.dest.is_workspace":
+  en: "That folder already is a Postino workspace. Add the collection there?"
+  es: "Esa carpeta ya es un espacio de trabajo de Postino. ¿Añadimos la colección ahí?"
+  gl: "Ese cartafol xa é un espazo de traballo de Postino. Engadimos a colección aí?"
+  it: "Quella cartella è già uno spazio di lavoro di Postino. Aggiungere lì la raccolta?"
+"import.dest.add_there":
+  en: "Add to that workspace"
+  es: "Añadir a ese espacio de trabajo"
+  gl: "Engadir a ese espazo de traballo"
+  it: "Aggiungi a quello spazio di lavoro"
+"import.dest.has_files.one":
+  en: "The folder is not empty (%{count} item). Postino only adds its environments and the collection."
+  es: "La carpeta no está vacía (%{count} elemento). Postino solo añade sus entornos y la colección."
+  gl: "O cartafol non está baleiro (%{count} elemento). Postino só engade os seus contornos e a colección."
+  it: "La cartella non è vuota (%{count} elemento). Postino aggiunge solo i suoi ambienti e la raccolta."
+"import.dest.has_files.other":
+  en: "The folder is not empty (%{count} items). Postino only adds its environments and the collection."
+  es: "La carpeta no está vacía (%{count} elementos). Postino solo añade sus entornos y la colección."
+  gl: "O cartafol non está baleiro (%{count} elementos). Postino só engade os seus contornos e a colección."
+  it: "La cartella non è vuota (%{count} elementi). Postino aggiunge solo i suoi ambienti e la raccolta."
+"import.dest.use_anyway":
+  en: "Use it anyway"
+  es: "Usarla de todos modos"
+  gl: "Usalo de todos os xeitos"
+  it: "Usala comunque"
+"import.dest.not_writable":
+  en: "Postino cannot write in that location."
+  es: "No se puede escribir en esa ubicación."
+  gl: "Non se pode escribir nesa localización."
+  it: "Non è possibile scrivere in quella posizione."
+"import.dest.back_to_default":
+  en: "Back to Documents"
+  es: "Volver a Documentos"
+  gl: "Volver a Documentos"
+  it: "Torna a Documenti"
+"import.summary.create":
+  en: "The workspace %{name} will be created in %{path}"
+  es: "Se creará el espacio de trabajo %{name} en %{path}"
+  gl: "Crearase o espazo de traballo %{name} en %{path}"
+  it: "Lo spazio di lavoro %{name} verrà creato in %{path}"
+"import.summary.add":
+  en: "It will be added as the folder %{collection} in %{workspace}"
+  es: "Se añadirá como carpeta %{collection} en %{workspace}"
+  gl: "Engadirase como cartafol %{collection} en %{workspace}"
+  it: "Verrà aggiunta come cartella %{collection} in %{workspace}"
+"import.summary.nothing_written":
+  en: "Nothing has been written yet"
+  es: "Hasta ahora no se ha escrito nada"
+  gl: "Ata agora non se escribiu nada"
+  it: "Finora non è stato scritto nulla"
+"import.create_and_import.one":
+  en: "Create workspace and import %{count} request"
+  es: "Crear espacio de trabajo e importar %{count} petición"
+  gl: "Crear espazo de traballo e importar %{count} petición"
+  it: "Crea spazio di lavoro e importa %{count} richiesta"
+"import.create_and_import.other":
+  en: "Create workspace and import %{count} requests"
+  es: "Crear espacio de trabajo e importar %{count} peticiones"
+  gl: "Crear espazo de traballo e importar %{count} peticións"
+  it: "Crea spazio di lavoro e importa %{count} richieste"
+"import.done.created.one":
+  en: "Workspace created and %{count} request imported"
+  es: "Espacio de trabajo creado e importada %{count} petición"
+  gl: "Espazo de traballo creado e importada %{count} petición"
+  it: "Spazio di lavoro creato e %{count} richiesta importata"
+"import.done.created.other":
+  en: "Workspace created and %{count} requests imported"
+  es: "Espacio de trabajo creado e importadas %{count} peticiones"
+  gl: "Espazo de traballo creado e importadas %{count} peticións"
+  it: "Spazio di lavoro creato e %{count} richieste importate"
+"import.done.in_workspace":
+  en: "The collection %{collection} is in the workspace %{workspace}."
+  es: "La colección %{collection} está en el espacio de trabajo %{workspace}."
+  gl: "A colección %{collection} está no espazo de traballo %{workspace}."
+  it: "La raccolta %{collection} è nello spazio di lavoro %{workspace}."
+"import.done.open_workspace":
+  en: "Open workspace"
+  es: "Abrir espacio de trabajo"
+  gl: "Abrir espazo de traballo"
+  it: "Apri spazio di lavoro"

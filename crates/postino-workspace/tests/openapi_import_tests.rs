@@ -254,3 +254,16 @@ fn a_folder_left_empty_by_a_removal_goes_too() {
     assert!(!collection.join("payouts").exists());
     assert!(collection.exists());
 }
+
+#[test]
+fn a_failed_import_leaves_nothing_behind() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // A file where the environments folder goes, so writing the environments fails last.
+    std::fs::write(dir.path().join("environments"), "in the way").expect("write");
+    let mut workspace = Workspace::open(dir.path()).expect("open");
+
+    let result = workspace.import_openapi(&plan(SPEC), &|_| true, &origin("2026-11-06"));
+
+    assert!(result.is_err());
+    assert!(!dir.path().join("Acme Payments API").exists());
+}

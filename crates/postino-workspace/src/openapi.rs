@@ -16,7 +16,9 @@ use postino_format::openapi::{
 
 use crate::error::WorkspaceError;
 use crate::ids::{id_to_path, path_to_id};
-use crate::postman::{ImportReport, unique_named_path, unique_path, write_environment};
+use crate::postman::{
+    ImportReport, undo_import, unique_named_path, unique_path, write_environment,
+};
 use crate::sanitize::sanitize_file_name;
 use crate::workspace::atomic_write;
 use crate::{REQUEST_EXTENSION, Workspace};
@@ -73,33 +75,10 @@ impl Workspace {
     ) -> Result<ImportReport, WorkspaceError> {
         let mut created = Vec::new();
         let target = unique_path(self.root(), &sanitize_file_name(&plan.root.name));
-        create_dir(&target)?;
-        let mut files = BTreeMap::new();
-        write_plan_folder(
-            &target,
-            &target,
-            self.root(),
-            &plan.root,
-            keep,
-            &mut files,
-            &mut created,
-        )?;
-        let manifest = Manifest::new(
-            &origin.date,
-            origin.source.clone(),
-            &origin.options,
-            plan,
-            &files,
-        );
-        atomic_write(&target.join(MANIFEST_FILE), &manifest.to_toml())?;
-        for environment in &plan.environments {
-            write_environment(
-                self.root(),
-                &environment.name,
-                &environment.base,
-                &environment.secret,
-                &mut created,
-            )?;
+        let written = write_plan(self.root(), &target, plan, keep, origin, &mut created);
+        if let Err(error) = written {
+            undo_import(self.root(), &target, &created);
+            return Err(error);
         }
         self.rescan()?;
         Ok(ImportReport {
@@ -111,27 +90,7 @@ impl Workspace {
     /// The collections an OpenAPI import created: every top-level folder with a manifest.
     /// A manifest that does not parse is skipped.
     pub fn openapi_collections(&self) -> Vec<OpenApiCollection> {
-        let Ok(entries) = fs::read_dir(self.root()) else {
-            return Vec::new();
-        };
-        let mut collections: Vec<OpenApiCollection> = entries
-            .flatten()
-            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-            .filter_map(|entry| {
-                let text = fs::read_to_string(entry.path().join(MANIFEST_FILE)).ok()?;
-                let manifest = Manifest::from_toml(&text)
-                    .map_err(|error| {
-                        log::warn!("{MANIFEST_FILE} in {:?}: {error}", entry.file_name())
-                    })
-                    .ok()?;
-                Some(OpenApiCollection {
-                    folder: path_to_id(self.root(), &entry.path()),
-                    manifest,
-                })
-            })
-            .collect();
-        collections.sort_by(|a, b| a.folder.cmp(&b.folder));
-        collections
+        openapi_collections_in(self.root())
     }
 
     /// Updates the collection in the folder `collection` (a workspace id) from a new `plan` of
@@ -251,6 +210,62 @@ impl Workspace {
         self.rescan()?;
         Ok(report)
     }
+}
+
+/// The collections an OpenAPI import created in the workspace folder `root`, without scanning the
+/// workspace: every top-level folder with a manifest. A manifest that does not parse is skipped.
+pub fn openapi_collections_in(root: &Path) -> Vec<OpenApiCollection> {
+    let Ok(entries) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut collections: Vec<OpenApiCollection> = entries
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter_map(|entry| {
+            let text = fs::read_to_string(entry.path().join(MANIFEST_FILE)).ok()?;
+            let manifest = Manifest::from_toml(&text)
+                .map_err(|error| log::warn!("{MANIFEST_FILE} in {:?}: {error}", entry.file_name()))
+                .ok()?;
+            Some(OpenApiCollection {
+                folder: path_to_id(root, &entry.path()),
+                manifest,
+            })
+        })
+        .collect();
+    collections.sort_by(|a, b| a.folder.cmp(&b.folder));
+    collections
+}
+
+/// Writes the collection folder `target`, its manifest and the environments of `plan`.
+fn write_plan(
+    root: &Path,
+    target: &Path,
+    plan: &OpenApiPlan,
+    keep: &dyn Fn(&str) -> bool,
+    origin: &ImportOrigin,
+    created: &mut Vec<String>,
+) -> Result<(), WorkspaceError> {
+    create_dir(target)?;
+    let mut files = BTreeMap::new();
+    write_plan_folder(target, target, root, &plan.root, keep, &mut files, created)?;
+    let manifest = Manifest::new(
+        &origin.date,
+        origin.source.clone(),
+        &origin.options,
+        plan,
+        &files,
+    );
+    atomic_write(&target.join(MANIFEST_FILE), &manifest.to_toml())?;
+    for environment in &plan.environments {
+        write_environment(
+            root,
+            &environment.name,
+            &environment.base,
+            &environment.secret,
+            created,
+        )?;
+    }
+    Ok(())
 }
 
 /// Removes the folders above `file` that the deletion left empty, up to `collection`, which

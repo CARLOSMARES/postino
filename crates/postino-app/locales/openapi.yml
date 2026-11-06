@@ -335,11 +335,6 @@ _version: 2
   es: "Importada con estas advertencias:"
   gl: "Importada con estas advertencias:"
   it: "Importata con questi avvisi:"
-"openapi.new_workspace_note":
-  en: "A new, empty folder for the OpenAPI collection %{name}."
-  es: "Una carpeta nueva y vacía para la colección OpenAPI %{name}."
-  gl: "Un cartafol novo e baleiro para a colección OpenAPI %{name}."
-  it: "Una nuova cartella vuota per la raccolta OpenAPI %{name}."
 "openapi.source.folder":
   en: "Folder"
   es: "Carpeta"

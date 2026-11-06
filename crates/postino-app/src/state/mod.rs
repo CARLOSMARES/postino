@@ -23,6 +23,7 @@ pub mod git_log;
 pub mod git_sync;
 pub mod header_completion;
 pub mod import;
+pub mod import_destination;
 pub mod json_pretty;
 pub mod launch;
 pub mod line_edit;

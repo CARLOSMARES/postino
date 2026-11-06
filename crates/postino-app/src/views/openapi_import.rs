@@ -3,8 +3,8 @@
 //! in `state/openapi_import.rs`; this renders it and runs the blocking parts (reading a file,
 //! downloading a URL) on the background executor.
 //!
-//! Without a workspace open, Import closes the wizard and opens the "New workspace" dialog, which
-//! runs the import once the new workspace is open, like a Postman import (GitHub #89).
+//! The workspace is the destination of the import, chosen in the Options step and created when
+//! the user confirms (GitHub #208, `views/import_destination.rs`).
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -19,12 +19,15 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 use rust_i18n::t;
 
-use postino_format::openapi::{ChangeKind, Grouping, ManifestSource, OpenApiPlan, PlanChange};
+use postino_format::openapi::{ChangeKind, Grouping, ManifestSource, PlanChange};
 use postino_runner::Client;
-use postino_workspace::{ImportOrigin, ImportReport, UpdateReport};
+use postino_workspace::{
+    ImportOrigin, ImportReport, Workspace, WorkspaceError, openapi_collections_in,
+};
 use telaio_ui::components::{CheckState, TextArea, TriCheckbox};
 use telaio_ui::metrics::CHECKBOX_HALO_PADDING;
 
+use crate::state::import_destination::{Target, slug};
 use crate::state::locale::plural;
 use crate::state::number::format_integer;
 use crate::state::openapi_import::{
@@ -38,7 +41,9 @@ use crate::views::components::{
     PrimaryButton, SecondaryButton, SectionLabel, TreeRow, framed_dialog, text_field,
 };
 
-use super::new_workspace::{self, NewWorkspacePurpose};
+use super::import_destination::{
+    DestinationBlock, ResolvedDestination, import_outside, render_destination,
+};
 use super::root::AppView;
 
 /// The card's size, from the design. Fixed, so the steps do not change the dialog's size.
@@ -65,16 +70,6 @@ const CHANGE_DETAIL_WIDTH: f32 = 240.0;
 /// How many steps the stepper shows (Done is not one of them).
 const STEP_COUNT: usize = 3;
 
-/// A spec waiting for the new workspace the "New workspace" dialog creates for it.
-pub(crate) struct PendingOpenApi {
-    /// The plan to write.
-    pub(crate) plan: Arc<OpenApiPlan>,
-    /// The requests the user unchecked.
-    pub(crate) excluded: HashSet<String>,
-    /// The source, date and options, for the collection's manifest.
-    pub(crate) origin: ImportOrigin,
-}
-
 /// The result shown by the Done step.
 struct Done {
     count: usize,
@@ -82,6 +77,10 @@ struct Done {
     warnings: Vec<String>,
     /// `(added, changed, removed)` when the wizard updated an existing collection.
     updated: Option<(usize, usize, usize)>,
+    /// The workspace the import went to when it is not the one that was open.
+    workspace: Option<String>,
+    /// Whether that workspace was created by the import.
+    created: bool,
 }
 
 /// The wizard's entity: the plain state plus the inputs and what is being loaded.
@@ -92,6 +91,8 @@ pub(crate) struct ImportWizard {
     /// wizard may open from inside an `AppView` update, where `AppView` cannot be read.
     client: Option<Arc<Client>>,
     name: Entity<InputState>,
+    /// The destination block, built when the Options step first shows.
+    destination: Option<Entity<DestinationBlock>>,
     url: Entity<InputState>,
     paste: Entity<TextareaState>,
     repository: Entity<InputState>,
@@ -279,6 +280,53 @@ impl ImportWizard {
         cx.notify();
     }
 
+    /// The destination of the import, `None` while the block has something to answer.
+    fn resolved(&self, cx: &App) -> Option<ResolvedDestination> {
+        self.destination.as_ref()?.read(cx).resolved(cx)
+    }
+
+    /// The name of the collection folder the import would write.
+    fn collection_name(&self, cx: &App) -> String {
+        let name = self.name.read(cx).value();
+        let name = name.trim();
+        if name.is_empty() {
+            self.state.suggested_name()
+        } else {
+            name.to_string()
+        }
+    }
+
+    /// Looks for an earlier import of this source in the destination: the Preview offers to
+    /// update it. The collection may be there only when the destination changed from the
+    /// workspace that was open when the source was read.
+    fn find_in_destination(&mut self, cx: &mut Context<Self>) {
+        let Some(source) = self.source.clone() else {
+            return;
+        };
+        let Some(destination) = self.resolved(cx) else {
+            return;
+        };
+        let collections = match destination.target.path() {
+            Some(path) => openapi_collections_in(path),
+            None => self
+                .view
+                .upgrade()
+                .and_then(|view| {
+                    view.read(cx)
+                        .state
+                        .workspace
+                        .as_ref()
+                        .map(Workspace::openapi_collections)
+                })
+                .unwrap_or_default(),
+        };
+        let found = find_existing(collections, &source);
+        let known = self.state.existing().map(|existing| &existing.folder);
+        if found.as_ref().map(|existing| &existing.folder) != known {
+            self.state.set_existing(found);
+        }
+    }
+
     /// Whether the primary button does something now.
     fn can_advance(&self, cx: &App) -> bool {
         if self.loading {
@@ -299,7 +347,7 @@ impl ImportWizard {
                         || !self.repository.read(cx).value().trim().is_empty()
                 }
             },
-            Step::Options => self.state.enabled_count() > 0,
+            Step::Options => self.state.enabled_count() > 0 && self.resolved(cx).is_some(),
             Step::Preview if self.state.is_update() => self.state.selected_change_count() > 0,
             Step::Preview => self.state.selected_count() > 0,
             Step::Done => true,
@@ -419,6 +467,7 @@ fn open_wizard(
         view: view.clone(),
         client: None,
         name: name.clone(),
+        destination: None,
         url: url.clone(),
         paste: paste.clone(),
         repository: repository.clone(),
@@ -525,6 +574,7 @@ fn primary_action(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut A
         }
         Step::Options => {
             wizard.update(cx, |wizard, cx| {
+                wizard.find_in_destination(cx);
                 wizard.rebuild(cx);
                 wizard.state.step = Step::Preview;
                 cx.notify();
@@ -536,12 +586,15 @@ fn primary_action(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut A
     }
 }
 
-/// Imports the selected requests. Into the open workspace the wizard moves to Done; without one
-/// it closes and the "New workspace" dialog takes over.
+/// Imports the selected requests into the destination and moves to the Done step. A failure
+/// stays on the Preview step with the reason.
 fn run_import(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut App) -> bool {
-    let (view, plan, excluded, origin, update) = {
+    let (view, plan, excluded, origin, update, destination) = {
         let wizard = wizard.read(cx);
         let Some(plan) = wizard.state.plan().cloned() else {
+            return false;
+        };
+        let Some(destination) = wizard.resolved(cx) else {
             return false;
         };
         let origin = ImportOrigin {
@@ -573,64 +626,66 @@ fn run_import(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut App) 
             wizard.state.excluded().clone(),
             origin,
             update,
+            destination,
         )
     };
     let Some(app) = view.upgrade() else {
         return true;
     };
-    if let Some((folder, skipped)) = update {
-        let result = app.update(cx, |app, cx| {
-            app.update_openapi(&folder, &plan, &skipped, &origin, cx)
-        });
-        wizard.update(cx, |wizard, cx| {
-            match result {
-                Ok(report) => {
-                    wizard.done = Some(Done {
-                        count: report.added + report.changed + report.removed,
-                        name: folder.clone(),
-                        warnings: report.warnings,
-                        updated: Some((report.added, report.changed, report.removed)),
-                    });
-                    wizard.state.step = Step::Done;
-                }
-                Err(error) => wizard.error = Some(error),
-            }
-            cx.notify();
-        });
-        return false;
-    }
-    if app.read(cx).state.workspace.is_none() {
-        let name = plan.root.name.clone();
-        window.close_dialog(cx);
-        new_workspace::open_new_workspace_dialog(
-            view,
-            NewWorkspacePurpose::OpenApi(PendingOpenApi {
-                plan,
-                excluded,
-                origin,
+    let result = app.update(cx, |app, cx| match update {
+        Some((folder, skipped)) => {
+            let opened = folder.clone();
+            app.import_to(
+                &destination,
+                |workspace| {
+                    workspace.update_openapi(&folder, &plan, &|key| !skipped.contains(key), &origin)
+                },
+                move |_| Some(opened),
+                window,
+                cx,
+            )
+            .map(|report| Done {
+                count: report.added + report.changed + report.removed,
+                name: folder.clone(),
+                updated: Some((report.added, report.changed, report.removed)),
+                warnings: report.warnings,
+                workspace: None,
+                created: false,
+            })
+        }
+        None => app
+            .import_to(
+                &destination,
+                |workspace| {
+                    workspace.import_openapi(&plan, &|key| !excluded.contains(key), &origin)
+                },
+                collection_folder,
+                window,
+                cx,
+            )
+            .map(|report| Done {
+                count: report
+                    .created_files
+                    .iter()
+                    .filter(|id| id.ends_with(".postino"))
+                    .count(),
+                name: plan.root.name.clone(),
+                warnings: report.warnings,
+                updated: None,
+                workspace: None,
+                created: false,
             }),
-            Some(name),
-            window,
-            cx,
-        );
-        return false;
-    }
-    let result = app.update(cx, |app, cx| {
-        app.import_openapi(&plan, &excluded, &origin, cx)
     });
     wizard.update(cx, |wizard, cx| {
         match result {
-            Ok(report) => {
-                wizard.done = Some(Done {
-                    count: report
-                        .created_files
-                        .iter()
-                        .filter(|id| id.ends_with(".postino"))
-                        .count(),
-                    name: plan.root.name.clone(),
-                    warnings: report.warnings,
-                    updated: None,
-                });
+            Ok(mut done) => {
+                if let Some(path) = destination.target.path() {
+                    done.workspace = path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned());
+                    done.created = matches!(destination.target, Target::Create(_));
+                }
+                wizard.done = Some(done);
                 wizard.state.step = Step::Done;
             }
             Err(error) => wizard.error = Some(error),
@@ -640,97 +695,86 @@ fn run_import(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut App) 
     false
 }
 
-impl AppView {
-    /// Writes `plan` into the open workspace, without the `excluded` requests, then refreshes
-    /// the sidebar with the new collection open and the environments.
-    pub(crate) fn import_openapi(
-        &mut self,
-        plan: &OpenApiPlan,
-        excluded: &HashSet<String>,
-        origin: &ImportOrigin,
-        cx: &mut Context<Self>,
-    ) -> Result<ImportReport, String> {
-        let Some(workspace) = self.state.workspace.as_mut() else {
-            return Err("no workspace is open".to_string());
-        };
-        match workspace.import_openapi(plan, &|key| !excluded.contains(key), origin) {
-            Ok(report) => {
-                log::info!(
-                    "imported an OpenAPI spec: {} files created, {} warnings",
-                    report.created_files.len(),
-                    report.warnings.len()
-                );
-                for warning in &report.warnings {
-                    log::debug!("import warning: {warning}");
-                }
-                let collection = report
-                    .created_files
-                    .iter()
-                    .find(|id| id.ends_with(".postino"))
-                    .and_then(|id| id.split('/').next())
-                    .map(str::to_string);
-                self.workspace_error = None;
-                self.refresh_tree_with(cx, |expansion| {
-                    if let Some(collection) = collection {
-                        expansion.insert(collection, true);
-                    }
-                });
-                self.refresh_environments();
-                cx.notify();
-                Ok(report)
-            }
-            Err(error) => {
-                crate::state::workspace_log::log_workspace_error("OpenAPI import", &error);
-                Err(error.to_string())
-            }
-        }
-    }
+/// The workspace id of the collection folder an import report's first request is in.
+fn collection_folder(report: &ImportReport) -> Option<String> {
+    report
+        .created_files
+        .iter()
+        .find(|id| id.ends_with(".postino"))
+        .and_then(|id| id.split('/').next())
+        .map(str::to_string)
+}
 
-    /// Updates the collection in `folder` from `plan`, applying every change but the `skipped`
-    /// ones, then refreshes the sidebar with the collection open.
-    pub(crate) fn update_openapi(
+impl AppView {
+    /// Runs `import` in the workspace of `destination`. In the open one the sidebar and the
+    /// environments refresh; another one, created when needed, opens once the import is done. The
+    /// collection folder `opened` picks from the result shows open in the sidebar.
+    pub(crate) fn import_to<R: 'static>(
         &mut self,
-        folder: &str,
-        plan: &OpenApiPlan,
-        skipped: &HashSet<String>,
-        origin: &ImportOrigin,
+        destination: &ResolvedDestination,
+        import: impl FnOnce(&mut Workspace) -> Result<R, WorkspaceError>,
+        opened: impl FnOnce(&R) -> Option<String>,
+        window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> Result<UpdateReport, String> {
-        let Some(workspace) = self.state.workspace.as_mut() else {
-            return Err("no workspace is open".to_string());
+    ) -> Result<R, String> {
+        let result = match destination.target.path() {
+            None => match self.state.workspace.as_mut() {
+                Some(workspace) => import(workspace),
+                None => return Err("no workspace is open".to_string()),
+            },
+            Some(_) => import_outside(destination, import),
         };
-        match workspace.update_openapi(folder, plan, &|key| !skipped.contains(key), origin) {
-            Ok(report) => {
-                log::info!(
-                    "updated an OpenAPI collection: {} added, {} changed, {} removed, {} warnings",
-                    report.added,
-                    report.changed,
-                    report.removed,
-                    report.warnings.len()
-                );
-                self.workspace_error = None;
-                let folder = folder.to_string();
-                self.refresh_tree_with(cx, |expansion| {
-                    expansion.insert(folder, true);
-                });
-                cx.notify();
-                Ok(report)
-            }
-            Err(error) => {
-                crate::state::workspace_log::log_workspace_error("OpenAPI update", &error);
-                Err(error.to_string())
+        let report = result.map_err(|error| {
+            crate::state::workspace_log::log_workspace_error("import", &error);
+            error.to_string()
+        })?;
+        log::info!("import written to {:?}", destination.target);
+        self.workspace_error = None;
+        let collection = opened(&report);
+        let expand = move |view: &mut Self, cx: &mut Context<Self>| {
+            view.refresh_tree_with(cx, |expansion| {
+                if let Some(collection) = collection {
+                    expansion.insert(collection, true);
+                }
+            });
+            view.refresh_environments();
+            cx.notify();
+        };
+        match destination.target.path() {
+            None => expand(self, cx),
+            Some(path) => {
+                self.open_workspace_at(path, window, cx);
+                self.when_workspace_opens(window, cx, move |view, _, cx| expand(view, cx));
             }
         }
+        Ok(report)
     }
 }
 
 fn render_wizard(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut App) -> AnyElement {
-    // The name input is filled from the spec once, when the Options step first shows it.
+    // The destination block is built when the Options step first shows, where `AppView` can be
+    // read.
+    if wizard.read(cx).destination.is_none() && wizard.read(cx).state.step == Step::Options {
+        let view = wizard.read(cx).view.clone();
+        let block = DestinationBlock::build(&view, window, cx);
+        wizard.update(cx, |wizard, _| wizard.destination = Some(block));
+    }
+    // The name inputs are filled from the spec once, when the Options step first shows them.
     if wizard.read(cx).name_pending && wizard.read(cx).state.step == Step::Options {
-        let (name, suggested) = {
+        let (name, suggested, block) = {
             let wizard = wizard.read(cx);
-            (wizard.name.clone(), wizard.state.suggested_name())
+            (
+                wizard.name.clone(),
+                wizard.state.suggested_name(),
+                wizard.destination.clone(),
+            )
         };
+        if let Some(block) = block {
+            let workspace_name = slug(&suggested);
+            block.update(cx, |block, cx| {
+                block.suggest_name(workspace_name, window, cx);
+            });
+        }
         name.update(cx, |state, cx| state.set_value(suggested, window, cx));
         wizard.update(cx, |wizard, cx| {
             wizard.name_pending = false;
@@ -927,8 +971,21 @@ fn render_footer(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> 
         Step::Preview if state.state.is_update() => {
             plural("openapi.update.button", state.state.selected_change_count()).into()
         }
-        Step::Preview => plural("openapi.import", selected).into(),
-        Step::Done => t!("common.close").into(),
+        Step::Preview => {
+            let create = matches!(
+                state.resolved(cx).map(|destination| destination.target),
+                Some(Target::Create(_))
+            );
+            if create {
+                plural("import.create_and_import", selected).into()
+            } else {
+                plural("openapi.import", selected).into()
+            }
+        }
+        Step::Done => match state.done.as_ref().and_then(|done| done.workspace.as_ref()) {
+            Some(_) => t!("import.done.open_workspace").into(),
+            None => t!("common.close").into(),
+        },
     };
     let can_advance = state.can_advance(cx);
     let back = wizard.downgrade();
@@ -1717,11 +1774,22 @@ fn render_options(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) ->
                 }),
         );
 
-    h_flex()
-        .items_start()
-        .gap(px(20.0))
-        .child(div().flex_1().min_w_0().child(left))
-        .child(div().flex_1().min_w_0().child(right))
+    let collection = state.collection_name(cx);
+    v_flex()
+        .gap(px(18.0))
+        .children(
+            state
+                .destination
+                .as_ref()
+                .map(|block| render_destination(block, &collection, palette, cx)),
+        )
+        .child(
+            h_flex()
+                .items_start()
+                .gap(px(20.0))
+                .child(div().flex_1().min_w_0().child(left))
+                .child(div().flex_1().min_w_0().child(right)),
+        )
         .into_any_element()
 }
 
@@ -2143,6 +2211,12 @@ fn render_tree_preview(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &Ap
     v_flex()
         .size_full()
         .gap(px(12.0))
+        .children(
+            state
+                .error
+                .clone()
+                .map(|error| InlineMessage::new(InlineMessageKind::Danger, error)),
+        )
         .child(
             h_flex()
                 .gap(px(10.0))
@@ -2211,7 +2285,88 @@ fn render_tree_preview(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &Ap
                     )
                 }),
         )
+        .children(render_destination_summary(wizard, palette, cx))
         .into_any_element()
+}
+
+/// The card of the Preview step that says where the collection goes.
+fn render_destination_summary(
+    wizard: &Entity<ImportWizard>,
+    palette: &Palette,
+    cx: &App,
+) -> Option<AnyElement> {
+    let state = wizard.read(cx);
+    let destination = state.resolved(cx)?;
+    let collection = state.collection_name(cx);
+    let (icon, text) = match &destination.target {
+        Target::Create(path) => {
+            let home = dirs::home_dir();
+            let parent = path.parent().unwrap_or(path);
+            (
+                IconName::FolderPlus,
+                t!(
+                    "import.summary.create",
+                    name = folder_name_of(path).as_str(),
+                    path = crate::state::format::shorten_path(parent, home.as_deref()).as_str()
+                )
+                .into_owned(),
+            )
+        }
+        Target::Open(path) => (
+            IconName::FolderTree,
+            t!(
+                "import.summary.add",
+                collection = collection.as_str(),
+                workspace = folder_name_of(path).as_str()
+            )
+            .into_owned(),
+        ),
+        Target::Current => {
+            let root = state.view.upgrade().and_then(|view| {
+                view.read(cx)
+                    .state
+                    .workspace
+                    .as_ref()
+                    .map(|workspace| workspace.root().to_path_buf())
+            })?;
+            (
+                IconName::FolderTree,
+                t!(
+                    "import.summary.add",
+                    collection = collection.as_str(),
+                    workspace = folder_name_of(&root).as_str()
+                )
+                .into_owned(),
+            )
+        }
+    };
+    Some(
+        h_flex()
+            .flex_none()
+            .gap(px(10.0))
+            .px(px(12.0))
+            .py(px(10.0))
+            .rounded(px(RADIUS_MD))
+            .bg(palette.raised)
+            .child(Icon::new(icon).size(px(15.0)).text_color(palette.fg_muted))
+            .child(div().flex_1().min_w_0().truncate().child(text))
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(px(12.0))
+                    .text_color(palette.fg_subtle)
+                    .child(t!("import.summary.nothing_written")),
+            )
+            .into_any_element(),
+    )
+}
+
+/// The last component of `path`.
+fn folder_name_of(path: &std::path::Path) -> String {
+    path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    )
 }
 
 /// One row of the preview tree. A folder's row opens and collapses it, a request's row toggles
@@ -2346,6 +2501,7 @@ fn render_done(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> An
                         removed = format_integer(removed as u64)
                     )
                     .into_owned(),
+                    None if done.created => plural("import.done.created", done.count),
                     None => t!(
                         &telaio_app::language::plural_key("openapi.done.title", done.count),
                         count = format_integer(done.count as u64),
@@ -2357,7 +2513,15 @@ fn render_done(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> An
         .child(
             div()
                 .text_color(palette.fg_muted)
-                .child(t!("openapi.done.note")),
+                .text_center()
+                .child(match &done.workspace {
+                    Some(workspace) => t!(
+                        "import.done.in_workspace",
+                        collection = done.name.as_str(),
+                        workspace = workspace.as_str()
+                    ),
+                    None => t!("openapi.done.note"),
+                }),
         )
         .when(!done.warnings.is_empty(), |column| {
             column.child(
@@ -2383,41 +2547,4 @@ fn render_done(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> An
             )
         })
         .into_any_element()
-}
-
-/// Shows the result of an import that ran after the "New workspace" dialog, when the wizard is
-/// already closed: the same title and warnings as the Done step, in an alert.
-pub(crate) fn show_report(name: &str, report: &ImportReport, window: &mut Window, cx: &mut App) {
-    let count = report
-        .created_files
-        .iter()
-        .filter(|id| id.ends_with(".postino"))
-        .count();
-    let title = t!(
-        &telaio_app::language::plural_key("openapi.done.title", count),
-        count = format_integer(count as u64),
-        name = name
-    )
-    .into_owned();
-    let mut text = t!("openapi.done.note").into_owned();
-    if !report.warnings.is_empty() {
-        text.push_str("\n\n");
-        text.push_str(&t!("openapi.done.warnings"));
-        for warning in &report.warnings {
-            text.push_str("\n- ");
-            text.push_str(warning);
-        }
-    }
-    crate::views::components::open_confirm_dialog(
-        window,
-        cx,
-        crate::views::components::ConfirmDialog {
-            title: title.into(),
-            text: text.into(),
-            confirm_label: t!("common.ok").into(),
-            destructive: false,
-            show_cancel: false,
-            on_confirm: std::rc::Rc::new(|_, _| {}),
-        },
-    );
 }

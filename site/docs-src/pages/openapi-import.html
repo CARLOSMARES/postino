@@ -46,6 +46,7 @@ spec:
 
 <h2>Step 2: Options</h2>
 <ul>
+    <li><strong>Destination:</strong> the workspace the collection goes in. See <a href="#where-the-collection-goes">Where the collection goes</a>.</li>
     <li><strong>Collection name:</strong> the name of the new folder, the spec's title by default (the first spec's, with several).</li>
     <li><strong>Versions:</strong> shown when the source gave several specs, each with its file, format and number of operations. Unchecked ones are not imported. Each spec goes in a folder of its own inside the collection: <code>v1</code>, <code>v2</code> after the major version of <code>info.version</code> when they all differ, else the spec titles when they differ, else the file names.</li>
     <li><strong>Folders:</strong> <strong>Path segments</strong> puts <code>/customers/{id}</code> in the folder <code>customers/{id}</code>; <strong>Tags</strong> puts each operation in the folder of its first tag, and untagged operations at the top of the collection.</li>
@@ -66,8 +67,22 @@ spec:
 <p>The tree of folders and requests that will be written, every request checked. A folder's checkbox checks or unchecks everything under it, a row opens a folder or toggles a request, and <strong>Select all</strong> and <strong>None</strong> act on the whole tree. The line under the tree tells which environments and auth variables are created. <strong>Import</strong> writes the checked requests; folders left without one are not created.</p>
 <p>The last screen tells how many requests were imported and lists the warnings. The new collection opens in the sidebar and its environments appear in the environment picker.</p>
 
-<h3>Importing without a workspace</h3>
-<p>With no workspace open, <strong>Import</strong> closes the wizard and opens the <a href="workspaces.html#creating-a-workspace">New workspace</a> dialog with the collection name as the folder name. <strong>Create</strong> makes an empty folder, opens it and imports into it. Cancelling the dialog writes nothing.</p>
+<h3>Where the collection goes</h3>
+<p>The Destination block of the Options step says where the collection is written. Nothing is written until <strong>Import</strong> in the Preview step: cancelling leaves nothing on disk, and an import that fails removes what it created.</p>
+<ul>
+    <li><strong>With no workspace open</strong> (a first run, for example), a new workspace is proposed: the name is the title of the spec in lowercase with hyphens, in <code>Documents/Postino</code>. Both can be changed, or <strong>Open existing folder...</strong> uses a folder you pick. <strong>Initialize a Git repository</strong> is on when Git is available. The first import is <strong>Next</strong>, <strong>Next</strong>, <strong>Create workspace and import</strong>.</li>
+    <li><strong>With a workspace open</strong>, it is the default, and the collection is added as a folder inside it. <strong>Another recent workspace</strong>, <strong>New workspace</strong> and <strong>Open existing folder...</strong> send it somewhere else.</li>
+</ul>
+<p>A workspace other than the open one opens when the import finishes. The folder is checked as soon as it is chosen:</p>
+<div class="table"><table>
+    <thead><tr><th>Case</th><th>What Postino offers</th></tr></thead>
+    <tbody>
+        <tr><td>The new workspace's folder exists with other files</td><td>Use a free name (<code>acme-payments-api-2</code>), or choose another folder</td></tr>
+        <tr><td>The folder already is a Postino workspace</td><td>Add the collection to it, or choose another folder</td></tr>
+        <tr><td>A picked folder has other files</td><td>Use it anyway, which only adds the environments and the collection, or choose another folder</td></tr>
+        <tr><td>The location cannot be written</td><td>Choose another folder, or go back to <code>Documents/Postino</code></td></tr>
+    </tbody>
+</table></div>
 
 <h2>Updating an imported collection</h2>
 <p>Every import leaves a small <code>.openapi.toml</code> file in the collection folder. It records the source, the day and the options of the import, and for each request its file and what the spec generated: method, URL, parameter and header names and the example body. The sidebar hides it; commit it with the requests, so everyone working on the collection can update it.</p>
