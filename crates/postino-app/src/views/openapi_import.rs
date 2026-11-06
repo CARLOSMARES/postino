@@ -861,6 +861,21 @@ fn render_wizard(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut Ap
         let block = DestinationBlock::build(&view, window, cx);
         wizard.update(cx, |wizard, _| wizard.destination = Some(block));
     }
+    // The source can change going back to the first step.
+    if wizard.read(cx).state.step == Step::Options {
+        let (block, folder) = {
+            let wizard = wizard.read(cx);
+            let folder = (wizard.state.source == SourceKind::Folder)
+                .then(|| wizard.folder.clone())
+                .flatten();
+            (wizard.destination.clone(), folder)
+        };
+        if let Some(block) = block
+            && block.read(cx).source_folder() != folder.as_ref()
+        {
+            block.update(cx, |block, cx| block.set_source_folder(folder, cx));
+        }
+    }
     // The name inputs are filled from the spec once, when the Options step first shows them.
     if wizard.read(cx).name_pending && wizard.read(cx).state.step == Step::Options {
         let (name, suggested, block) = {

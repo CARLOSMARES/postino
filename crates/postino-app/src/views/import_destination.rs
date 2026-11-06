@@ -55,6 +55,8 @@ pub(crate) struct DestinationBlock {
     init_git: bool,
     /// Whether the new workspace's location already is inside a Git repository.
     inside_repo: bool,
+    /// The folder the import reads from, offered as the workspace (design, section 6).
+    source_folder: Option<PathBuf>,
 }
 
 /// What the wizard runs with once the user confirms.
@@ -94,6 +96,7 @@ impl DestinationBlock {
             init_git: git.is_some(),
             git,
             inside_repo,
+            source_folder: None,
         });
         let weak = block.downgrade();
         window
@@ -121,6 +124,17 @@ impl DestinationBlock {
         self.name
             .update(cx, |state, cx| state.set_value(name, window, cx));
         self.refresh(cx);
+    }
+
+    /// The folder the import reads from.
+    pub(crate) fn source_folder(&self) -> Option<&PathBuf> {
+        self.source_folder.as_ref()
+    }
+
+    /// Sets the folder the import reads from, `None` when it reads from something else.
+    pub(crate) fn set_source_folder(&mut self, folder: Option<PathBuf>, cx: &mut Context<Self>) {
+        self.source_folder = folder;
+        cx.notify();
     }
 
     /// The resolved destination, `None` while something is missing.
@@ -219,8 +233,36 @@ pub(crate) fn render_destination(
         .bg(palette.surface)
         .child(SectionLabel::new(t!("import.dest.title")))
         .child(content)
+        .children(render_use_source(block, cx))
         .children(render_notice(block, palette, cx))
         .into_any_element()
+}
+
+/// The button that makes the folder the import reads from the workspace, instead of a new one.
+/// Clicking it answers the notice about its files.
+fn render_use_source(block: &Entity<DestinationBlock>, cx: &App) -> Option<AnyElement> {
+    let this = block.read(cx);
+    let folder = this.source_folder.clone()?;
+    if this.state.choice == Choice::Existing && this.state.existing.as_ref() == Some(&folder) {
+        return None;
+    }
+    let weak = block.downgrade();
+    Some(
+        h_flex()
+            .child(
+                SecondaryButton::new("import-dest-use-source", t!("import.dest.use_source"))
+                    .on_click(move |_, _, cx| {
+                        let folder = folder.clone();
+                        let _ = weak.update(cx, |block, cx| {
+                            block.state.choice = Choice::Existing;
+                            block.state.existing = Some(folder);
+                            block.state.accept("");
+                            block.refresh(cx);
+                        });
+                    }),
+            )
+            .into_any_element(),
+    )
 }
 
 /// Design 3a: no workspace is open, so a new one is proposed.

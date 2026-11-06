@@ -48,11 +48,14 @@ Expo/React Native conventions here.
   (method badge, URL bar, env pill, variable chips, document tabs) and colors (methods, status
   codes, environments, `theme::PostinoColors`) stay here.
 - MVP scope: HTTP methods (standard or custom), URL, query params, headers, body (json/text/
-  xml/form), environments and variables, pre/post JavaScript scripts with `test()`/`expect()`,
+  xml/form/multipart), environments and variables, pre/post JavaScript scripts with `test()`/`expect()`,
   a response viewer, Postman collection import. The reasons behind these choices
   are in `docs/architecture.md`.
-- Postman import: Collection format v2.1 (v2.0 accepted when it parses the same) and Postman
-  environment exports.
+- Postman import (#210, #211, #212): Collection format v2.1 (v2.0 accepted when it parses the same),
+  environment and globals exports, from files, pasted text, a folder or a `.zip`, through the import
+  wizard OpenAPI uses. `pm.*` scripts are converted. See `docs/postman-import.md`.
+- An import's destination is a block of the wizard (#208): the workspace is created when the user
+  confirms, never before. `views/import_destination.rs`.
 - OpenAPI import (#201, #202): OpenAPI 3.1, 3.0 and Swagger 2.0, JSON or YAML (`serde_norway`),
   from a file, a URL, pasted text, a folder or a shallow clone of a Git repository, plus Backstage
   `catalog-info.yaml`, through a three step wizard. See `docs/openapi-import.md`.

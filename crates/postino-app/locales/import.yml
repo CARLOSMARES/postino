@@ -445,3 +445,8 @@ _version: 2
   es: "Actualizar colección desde Postman..."
   gl: "Actualizar colección desde Postman..."
   it: "Aggiorna raccolta da Postman..."
+"import.dest.use_source":
+  en: "Use the source folder as the workspace"
+  es: "Usar la carpeta de origen como espacio de trabajo"
+  gl: "Usar o cartafol de orixe como espazo de traballo"
+  it: "Usa la cartella di origine come spazio di lavoro"

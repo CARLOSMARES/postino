@@ -126,6 +126,10 @@ impl Destination {
 
     /// Checks the selected folder again. Touches the disk: call it when the selection changes.
     pub fn refresh(&mut self, name: &str) {
+        if self.accepted.is_some() && self.accepted == self.folder(name) {
+            self.check = FolderCheck::Ready;
+            return;
+        }
         self.check = match (self.choice, self.folder(name)) {
             (Choice::Current, _) | (_, None) => FolderCheck::Ready,
             (Choice::Recent, Some(folder)) => {
@@ -400,6 +404,18 @@ mod tests {
         destination.existing = Some(second);
         destination.refresh("");
         assert_eq!(destination.target(""), None);
+    }
+
+    #[test]
+    fn an_accepted_folder_stays_accepted_when_checked_again() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        fs::write(dir.path().join("a.txt"), "x").expect("write");
+        let mut destination = destination(dir.path());
+        destination.choice = Choice::Existing;
+        destination.existing = Some(dir.path().to_path_buf());
+        destination.accept("");
+        destination.refresh("");
+        assert_eq!(destination.check, FolderCheck::Ready);
     }
 
     #[test]
