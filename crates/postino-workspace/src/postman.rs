@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use postino_core::KeyValue;
-use postino_format::postman::{ImportFolder, parse_collection, parse_environment};
+use postino_format::postman::{ImportFolder, PostmanOptions, parse_collection, parse_environment};
 
 use crate::error::WorkspaceError;
 use crate::ids::path_to_id;
@@ -40,7 +40,7 @@ impl Workspace {
         &mut self,
         json: &str,
     ) -> Result<ImportReport, WorkspaceError> {
-        let plan = parse_collection(json)?;
+        let plan = parse_collection(json, &PostmanOptions::default())?;
         let mut created = Vec::new();
 
         let target = unique_path(self.root(), &sanitize_file_name(&plan.collection_name));
@@ -54,7 +54,7 @@ impl Workspace {
             self.root(),
             &plan.collection_name,
             &plan.variables,
-            &[],
+            &plan.secret_variables,
             &mut created,
         )?;
 

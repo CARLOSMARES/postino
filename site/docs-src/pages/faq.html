@@ -17,7 +17,7 @@ description: Frequently asked questions about Postino: accounts, cloud sync, pri
 <p>Only the requests you send. Builds for macOS and Windows also check GitHub for a new version once at startup, without any identifier, and you can turn that off. There is no telemetry and no crash reporting. See <a href="files-and-folders.html#network">Files and folders</a>.</p>
 
 <h2>Can I open my Postman collections?</h2>
-<p>Yes, import them: collections in format v2.1 (and v2.0) and environment exports. Requests, folders, headers, bodies, Basic, Bearer and API key auth and variables are converted. Scripts are copied but commented out, because Postman's <code>pm.*</code> API is different. See <a href="postman-import.html">Importing from Postman</a>.</p>
+<p>Yes, import them: collections in format v2.1 (and v2.0) and environment exports. Requests, folders, headers, bodies, Basic, Bearer and API key auth and variables are converted. <code>pm.*</code> scripts are converted, and what has no equivalent stays as a comment. See <a href="postman-import.html">Importing from Postman</a>.</p>
 
 <h2>Can I use .http files from my editor?</h2>
 <p>No. The <code>.postino</code> format was inspired by <code>.http</code> files, but it is not compatible with them: sections such as <code>::: body json</code> and <code>::: post</code> have no equivalent there. Converting one by hand is quick, since both are plain text.</p>

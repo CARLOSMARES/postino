@@ -151,6 +151,7 @@ impl PlanFolder {
                 .filter(|request| keep(&request.key))
                 .map(|request| (request.name.clone(), request.request.clone()))
                 .collect(),
+            issues: Vec::new(),
         }
     }
 

@@ -5,15 +5,105 @@ use postino_core::{ApiKeyLocation, Auth, Body, KeyValue, Method, Request};
 
 use super::error::PostmanError;
 use super::model::{
-    RawAuth, RawAuthParam, RawBody, RawCollection, RawEvent, RawItem, RawRequest, RawUrl,
-    RawUrlDetailed,
+    RawAuth, RawAuthParam, RawBody, RawCollection, RawEvent, RawFormDataParam, RawItem, RawRequest,
+    RawSavedResponse, RawUrl, RawUrlDetailed,
 };
+use super::script::convert_script;
 use super::value::value_to_text;
 
-/// The fixed first line written on top of every imported script: Postman's `pm.*`
-/// API has no equivalent in Postino, so the script body is commented out rather than translated.
+/// The first line of a script imported without converting it (the option is off).
 const IMPORT_SCRIPT_HEADER: &str =
-    "// Imported from Postman. The pm.* API is not supported, adapt it.";
+    "// Imported from Postman. Scripts were not converted, adapt the pm.* calls.";
+
+/// The variable that holds the access token of a request with OAuth 2.0 authorization.
+const OAUTH2_TOKEN_VARIABLE: &str = "oauth2AccessToken";
+
+/// What to convert from a collection, the wizard's "Convert" options.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PostmanOptions {
+    /// Keep Postman's folders. Off, every request goes at the top of the collection.
+    pub folders: bool,
+    /// Collection variables and globals go in every environment.
+    pub variables: bool,
+    /// Variables of type secret go to `.local.env`. Off, they are left out.
+    pub secrets: bool,
+    /// Convert the authorization of requests, inherited or their own. Off, requests have none.
+    pub auth: bool,
+    /// Convert `pm.*` scripts. Off, they are copied as comments.
+    pub scripts: bool,
+    /// Keep the description of each request and its saved examples, in the request's docs.
+    pub docs: bool,
+}
+
+impl Default for PostmanOptions {
+    fn default() -> Self {
+        PostmanOptions {
+            folders: true,
+            variables: true,
+            secrets: true,
+            auth: true,
+            scripts: true,
+            docs: false,
+        }
+    }
+}
+
+/// Something about one request that the wizard's preview and the import report tell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RequestIssue {
+    /// Its `pm.*` scripts were converted in full.
+    ScriptConverted,
+    /// Part of a script is commented out, `converted` of `total` statements stayed.
+    ScriptPartial {
+        /// The statements kept as code.
+        converted: usize,
+        /// The statements of the script.
+        total: usize,
+    },
+    /// A script uses `pm.sendRequest`, which Postino does not have.
+    SendRequest,
+    /// Its scripts were copied as comments, since the option is off.
+    ScriptNotConverted,
+    /// OAuth 2.0: the token is sent as a bearer token and is not renewed.
+    OAuth2Token,
+    /// An authorization Postino does not have: the request is imported without it.
+    AuthUnsupported(String),
+    /// A form-data field points to a file, whose path may not exist on this machine.
+    FormDataFile,
+    /// A body Postino does not have: the request is imported without a body.
+    BodyUnsupported(String),
+    /// A form-data field picks several files, only the first one is kept.
+    FormDataManyFiles,
+}
+
+/// How serious a [`RequestIssue`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum IssueLevel {
+    /// Worth telling, nothing to do.
+    Note,
+    /// The request works, but it needs a look.
+    Warning,
+    /// A part of the request is lost.
+    Unsupported,
+}
+
+impl RequestIssue {
+    /// How serious it is.
+    pub fn level(&self) -> IssueLevel {
+        match self {
+            RequestIssue::ScriptConverted => IssueLevel::Note,
+            RequestIssue::ScriptPartial { .. }
+            | RequestIssue::SendRequest
+            | RequestIssue::ScriptNotConverted
+            | RequestIssue::OAuth2Token
+            | RequestIssue::FormDataFile
+            | RequestIssue::FormDataManyFiles => IssueLevel::Warning,
+            RequestIssue::AuthUnsupported(_) | RequestIssue::BodyUnsupported(_) => {
+                IssueLevel::Unsupported
+            }
+        }
+    }
+}
 
 /// The result of importing a Postman collection: a tree of folders and requests, plus the
 /// collection's own variables and anything that could not be mapped faithfully. Pure in-memory
@@ -23,12 +113,19 @@ pub struct ImportPlan {
     /// The collection name (`info.name`), used as the name of the new top-level folder and of
     /// the environment created from the collection's own variables.
     pub collection_name: String,
+    /// `info._postman_id`, empty when the export has none.
+    pub postman_id: String,
+    /// The format version from `info.schema` (`v2.1.0`), empty when it names none.
+    pub schema_version: String,
     /// The root folder of the imported tree. Its own name is not meaningful, only its `folders`
     /// and `requests` fields are used.
     pub root: ImportFolder,
     /// The collection's own `variable` array, to become the environment named after the
     /// collection (`environments/<collection name>.env`).
     pub variables: Vec<KeyValue>,
+    /// The variables of type `secret`, and the access tokens of OAuth 2.0 authorizations, for
+    /// `environments/<collection name>.local.env`.
+    pub secret_variables: Vec<KeyValue>,
     /// Everything that could not be mapped faithfully, in the order it was found.
     pub warnings: Vec<String>,
 }
@@ -42,42 +139,70 @@ pub struct ImportFolder {
     pub folders: Vec<ImportFolder>,
     /// Requests directly inside this folder, as `(name, Request)` pairs, in collection order.
     pub requests: Vec<(String, Request)>,
+    /// What to tell about each of `requests`, by position.
+    pub issues: Vec<Vec<RequestIssue>>,
+}
+
+/// What mapping a collection collects on the way.
+struct Mapping<'a> {
+    options: &'a PostmanOptions,
+    warnings: Vec<String>,
+    /// The variables OAuth 2.0 authorizations need.
+    secrets: Vec<KeyValue>,
 }
 
 /// Parses the text of a Postman collection export into an [`ImportPlan`].
-pub fn parse_collection(text: &str) -> Result<ImportPlan, PostmanError> {
+pub fn parse_collection(text: &str, options: &PostmanOptions) -> Result<ImportPlan, PostmanError> {
     let raw: RawCollection =
         serde_json::from_str(text).map_err(PostmanError::InvalidCollectionJson)?;
-    let mut warnings = Vec::new();
+    let mut mapping = Mapping {
+        options,
+        warnings: Vec::new(),
+        secrets: Vec::new(),
+    };
     warn_about_dropped_events(
         raw.event.as_deref(),
         "collection",
         &raw.info.name,
-        &mut warnings,
+        &mut mapping.warnings,
     );
-    let (folders, requests) =
-        map_items(&raw.item, raw.auth.as_ref(), &raw.info.name, &mut warnings);
+    let root = map_items(&raw.item, raw.auth.as_ref(), &raw.info.name, &mut mapping);
+    let mut warnings = mapping.warnings;
+    let mut secret_variables = mapping.secrets;
     let mut variables = Vec::new();
     for variable in raw.variable {
         let Some(key) = variable.key else { continue };
+        if variable.disabled {
+            continue;
+        }
         let context = format!("variable \"{key}\"");
         let value = value_to_text(variable.value.as_ref(), &context, &mut warnings);
-        variables.push(KeyValue::new(key, value));
+        if variable.kind.as_deref() == Some("secret") {
+            secret_variables.push(KeyValue::new(key, value));
+        } else {
+            variables.push(KeyValue::new(key, value));
+        }
     }
+    let schema_version = raw
+        .info
+        .schema
+        .split('/')
+        .find(|part| part.starts_with('v') && part.contains('.'))
+        .unwrap_or_default()
+        .to_string();
     Ok(ImportPlan {
         collection_name: raw.info.name,
-        root: ImportFolder {
-            name: String::new(),
-            folders,
-            requests,
-        },
+        postman_id: raw.info.postman_id,
+        schema_version,
+        root,
         variables,
+        secret_variables,
         warnings,
     })
 }
 
-/// Maps one `item` array (the collection's own, or a folder's) into its child folders and
-/// requests, resolving auth inheritance as it goes.
+/// Maps one `item` array (the collection's own, or a folder's) into a folder, resolving auth
+/// inheritance as it goes.
 ///
 /// `inherited_auth` is the auth block that applies to a request in this list when the request
 /// itself has no auth of its own or explicitly uses `"inherit"`. `path` is a human readable
@@ -86,10 +211,14 @@ fn map_items(
     items: &[RawItem],
     inherited_auth: Option<&RawAuth>,
     path: &str,
-    warnings: &mut Vec<String>,
-) -> (Vec<ImportFolder>, Vec<(String, Request)>) {
-    let mut folders = Vec::new();
-    let mut requests = Vec::new();
+    mapping: &mut Mapping<'_>,
+) -> ImportFolder {
+    let mut folder = ImportFolder {
+        name: String::new(),
+        folders: Vec::new(),
+        requests: Vec::new(),
+        issues: Vec::new(),
+    };
 
     for item in items {
         let name = item.name.clone().unwrap_or_default();
@@ -97,24 +226,27 @@ fn map_items(
 
         if let Some(children) = &item.item {
             let folder_auth = item.auth.as_ref().or(inherited_auth);
-            warn_about_dropped_events(item.event.as_deref(), "folder", &name, warnings);
-            let (nested_folders, nested_requests) =
-                map_items(children, folder_auth, &item_path, warnings);
-            folders.push(ImportFolder {
-                name,
-                folders: nested_folders,
-                requests: nested_requests,
-            });
+            warn_about_dropped_events(
+                item.event.as_deref(),
+                "folder",
+                &name,
+                &mut mapping.warnings,
+            );
+            let mut child = map_items(children, folder_auth, &item_path, mapping);
+            child.name = name;
+            folder.folders.push(child);
         } else if let Some(request) = &item.request {
             let auth = effective_auth(request.auth.as_ref(), inherited_auth);
             let events = item.event.as_deref().unwrap_or(&[]);
-            let mapped = map_request(request, events, auth, &item_path, warnings);
-            requests.push((name, mapped));
+            let (mapped, issues) =
+                map_request(request, events, auth, &item.response, &item_path, mapping);
+            folder.requests.push((name, mapped));
+            folder.issues.push(issues);
         }
         // An item with neither `item` nor `request` is malformed and has nothing to map.
     }
 
-    (folders, requests)
+    folder
 }
 
 /// Warns about a `prerequest`/`test` event found at the collection or folder level.
@@ -155,14 +287,17 @@ fn effective_auth<'a>(
     }
 }
 
-/// Maps one Postman request into a Postino [`Request`].
+/// Maps one Postman request into a Postino [`Request`], and what to tell about it.
 fn map_request(
     request: &RawRequest,
     events: &[RawEvent],
     auth: Option<&RawAuth>,
+    examples: &[RawSavedResponse],
     path: &str,
-    warnings: &mut Vec<String>,
-) -> Request {
+    mapping: &mut Mapping<'_>,
+) -> (Request, Vec<RequestIssue>) {
+    let mut issues = Vec::new();
+    let warnings = &mut mapping.warnings;
     let method = parse_method(request.method.as_deref().unwrap_or("GET"));
     let (url, query) = map_url(request.url.as_ref(), path, warnings);
 
@@ -175,26 +310,60 @@ fn map_request(
             enabled: !header.disabled,
         });
     }
-    let auth = auth.map_or(Auth::None, |auth| map_auth(auth, path, warnings));
+    let auth = match auth {
+        Some(auth) if mapping.options.auth => {
+            map_auth(auth, path, warnings, &mut mapping.secrets, &mut issues)
+        }
+        _ => Auth::None,
+    };
 
-    let body = map_body(request.body.as_ref(), path, warnings);
-    let docs = request
-        .description
-        .as_ref()
-        .map(super::model::RawDescription::as_text)
-        .unwrap_or_default();
+    let body = map_body(request.body.as_ref(), path, warnings, &mut issues);
+    let docs = if mapping.options.docs {
+        let description = request
+            .description
+            .as_ref()
+            .map(super::model::RawDescription::as_text)
+            .unwrap_or_default();
+        with_examples(description, examples)
+    } else {
+        String::new()
+    };
 
-    Request {
-        method,
-        url,
-        headers,
-        query,
-        auth,
-        body,
-        pre_script: map_script(events, "prerequest"),
-        post_script: map_script(events, "test"),
-        docs,
+    let pre_script = map_script(events, "prerequest", mapping.options.scripts, &mut issues);
+    let post_script = map_script(events, "test", mapping.options.scripts, &mut issues);
+    (
+        Request {
+            method,
+            url,
+            headers,
+            query,
+            auth,
+            body,
+            pre_script,
+            post_script,
+            docs,
+        },
+        issues,
+    )
+}
+
+/// The docs of a request: its description, then its saved examples.
+fn with_examples(description: String, examples: &[RawSavedResponse]) -> String {
+    let mut docs = description;
+    for example in examples {
+        if !docs.is_empty() {
+            docs.push_str("\n\n");
+        }
+        let name = example.name.as_deref().unwrap_or("Example");
+        docs.push_str(&format!("## {name}"));
+        if let Some(code) = example.code {
+            docs.push_str(&format!(" ({code})"));
+        }
+        if let Some(body) = example.body.as_deref().filter(|body| !body.is_empty()) {
+            docs.push_str(&format!("\n\n```\n{body}\n```"));
+        }
     }
+    docs
 }
 
 /// Parses a Postman method token, which is always one of the standard uppercase methods in
@@ -282,9 +451,15 @@ fn parse_query_string(query: &str) -> Vec<KeyValue> {
         .collect()
 }
 
-/// Maps an `auth` block into the request's [`Auth`]: bearer, basic, and apikey in the header
-/// or the query.
-fn map_auth(auth: &RawAuth, path: &str, warnings: &mut Vec<String>) -> Auth {
+/// Maps an `auth` block into the request's [`Auth`]: bearer, basic, apikey in the header or the
+/// query, and the access token of OAuth 2.0, sent as a bearer token.
+fn map_auth(
+    auth: &RawAuth,
+    path: &str,
+    warnings: &mut Vec<String>,
+    secrets: &mut Vec<KeyValue>,
+    issues: &mut Vec<RequestIssue>,
+) -> Auth {
     match auth.kind.as_str() {
         "bearer" => {
             let context = format!("{path}: auth bearer \"token\"");
@@ -317,6 +492,9 @@ fn map_auth(auth: &RawAuth, path: &str, warnings: &mut Vec<String>) -> Auth {
                         "{path}: apikey auth in \"{location}\" is not supported, only header \
                          and query, skipped"
                     ));
+                    issues.push(RequestIssue::AuthUnsupported(format!(
+                        "apikey in {location}"
+                    )));
                     return Auth::None;
                 }
             };
@@ -326,11 +504,27 @@ fn map_auth(auth: &RawAuth, path: &str, warnings: &mut Vec<String>) -> Auth {
                 location,
             }
         }
+        "oauth2" => {
+            let context = format!("{path}: auth oauth2 \"accessToken\"");
+            let token =
+                find_param(&auth.oauth2, "accessToken", &context, warnings).unwrap_or_default();
+            if !secrets
+                .iter()
+                .any(|entry| entry.key == OAUTH2_TOKEN_VARIABLE)
+            {
+                secrets.push(KeyValue::new(OAUTH2_TOKEN_VARIABLE, token));
+            }
+            issues.push(RequestIssue::OAuth2Token);
+            Auth::Bearer {
+                token: format!("{{{{{OAUTH2_TOKEN_VARIABLE}}}}}"),
+            }
+        }
         "noauth" | "" => Auth::None,
         other => {
             warnings.push(format!(
                 "{path}: auth type \"{other}\" is not supported, skipped"
             ));
+            issues.push(RequestIssue::AuthUnsupported(other.to_string()));
             Auth::None
         }
     }
@@ -352,7 +546,12 @@ fn find_param(
 }
 
 /// Maps a `body` object into a Postino [`Body`].
-fn map_body(body: Option<&RawBody>, path: &str, warnings: &mut Vec<String>) -> Body {
+fn map_body(
+    body: Option<&RawBody>,
+    path: &str,
+    warnings: &mut Vec<String>,
+    issues: &mut Vec<RequestIssue>,
+) -> Body {
     let Some(body) = body else {
         return Body::None;
     };
@@ -371,19 +570,72 @@ fn map_body(body: Option<&RawBody>, path: &str, warnings: &mut Vec<String>) -> B
             }
             Body::Form(fields)
         }
-        Some(mode @ ("formdata" | "file" | "graphql")) => {
+        Some("formdata") => map_form_data(&body.formdata, path, warnings, issues),
+        Some(mode @ ("file" | "graphql")) => {
             warnings.push(format!(
                 "{path}: {mode} body is not supported, imported as empty"
             ));
+            issues.push(RequestIssue::BodyUnsupported(mode.to_string()));
             Body::None
         }
         Some(other) => {
             warnings.push(format!(
                 "{path}: unknown body mode \"{other}\", imported as empty"
             ));
+            issues.push(RequestIssue::BodyUnsupported(other.to_string()));
             Body::None
         }
     }
+}
+
+/// Maps a `formdata` body: a file field becomes `@path`, a text field that starts with `@` is
+/// escaped.
+fn map_form_data(
+    params: &[RawFormDataParam],
+    path: &str,
+    warnings: &mut Vec<String>,
+    issues: &mut Vec<RequestIssue>,
+) -> Body {
+    let mut fields = Vec::new();
+    let mut has_file = false;
+    let mut many_files = false;
+    for param in params {
+        let value = if param.kind.as_deref() == Some("file") {
+            has_file = true;
+            let files: Vec<&str> = match param.src.as_ref() {
+                Some(serde_json::Value::String(file)) => vec![file.as_str()],
+                Some(serde_json::Value::Array(files)) => {
+                    files.iter().filter_map(|file| file.as_str()).collect()
+                }
+                _ => Vec::new(),
+            };
+            many_files |= files.len() > 1;
+            format!("@{}", files.first().copied().unwrap_or_default())
+        } else {
+            let context = format!("{path}: form field \"{}\"", param.key);
+            let text = value_to_text(param.value.as_ref(), &context, warnings);
+            if text.starts_with('@') {
+                format!("@{text}")
+            } else {
+                text
+            }
+        };
+        fields.push(KeyValue {
+            key: param.key.clone(),
+            value,
+            enabled: !param.disabled,
+        });
+    }
+    if has_file {
+        issues.push(RequestIssue::FormDataFile);
+    }
+    if many_files {
+        warnings.push(format!(
+            "{path}: a form-data field picks several files, only the first is kept"
+        ));
+        issues.push(RequestIssue::FormDataManyFiles);
+    }
+    Body::Multipart(fields)
 }
 
 /// Maps a `mode: "raw"` body, dispatching on `options.raw.language` (default `text`).
@@ -403,10 +655,15 @@ fn map_raw_body(body: &RawBody) -> Body {
 }
 
 /// Builds the `pre` or `post` script for the events whose `listen` matches `kind` (`"prerequest"`
-/// or `"test"`), commented out line by line with the fixed header. Returns an empty string when
-/// there is no such event, or its script has no lines, so the section is omitted when the request
-/// is serialized.
-fn map_script(events: &[RawEvent], kind: &str) -> String {
+/// or `"test"`): converted, or commented out line by line under a fixed header when `convert` is
+/// off. Returns an empty string when there is no such event, or its script has no lines, so the
+/// section is omitted when the request is serialized.
+fn map_script(
+    events: &[RawEvent],
+    kind: &str,
+    convert: bool,
+    issues: &mut Vec<RequestIssue>,
+) -> String {
     let lines: Vec<String> = events
         .iter()
         .filter(|event| event.listen.as_deref() == Some(kind))
@@ -414,10 +671,30 @@ fn map_script(events: &[RawEvent], kind: &str) -> String {
         .filter_map(|script| script.exec.as_ref())
         .flat_map(super::model::RawExec::lines)
         .collect();
-    if lines.is_empty() {
+    if lines.iter().all(|line| line.trim().is_empty()) {
         return String::new();
     }
-    let mut commented = vec![IMPORT_SCRIPT_HEADER.to_string()];
-    commented.extend(lines.iter().map(|line| format!("// {line}")));
-    commented.join("\n")
+    if !convert {
+        let mut commented = vec![IMPORT_SCRIPT_HEADER.to_string()];
+        commented.extend(lines.iter().map(|line| format!("// {line}")));
+        if !issues.contains(&RequestIssue::ScriptNotConverted) {
+            issues.push(RequestIssue::ScriptNotConverted);
+        }
+        return commented.join("\n");
+    }
+    let converted = convert_script(&lines.join("\n"));
+    if converted.send_request && !issues.contains(&RequestIssue::SendRequest) {
+        issues.push(RequestIssue::SendRequest);
+    }
+    if converted.converted < converted.total {
+        if !converted.send_request {
+            issues.push(RequestIssue::ScriptPartial {
+                converted: converted.converted,
+                total: converted.total,
+            });
+        }
+    } else if converted.rewrote && !issues.contains(&RequestIssue::ScriptConverted) {
+        issues.push(RequestIssue::ScriptConverted);
+    }
+    converted.text
 }

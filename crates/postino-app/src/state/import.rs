@@ -6,7 +6,7 @@
 //! `views/sidebar.rs` and this module's own tests go through the exact same call, instead of the
 //! menu poking at `postino-workspace` directly.
 
-use postino_format::postman::{parse_collection, parse_environment};
+use postino_format::postman::{PostmanOptions, parse_collection, parse_environment};
 use postino_workspace::{ImportReport, Workspace, WorkspaceError};
 
 /// Imports a Postman collection export (the raw JSON text of a `.postman_collection.json` file)
@@ -31,7 +31,7 @@ pub fn import_postman_environment(
 /// workspace an import without a workspace creates (GitHub #89). Fails like the import itself
 /// would on a file that is not a collection export.
 pub fn postman_collection_name(json: &str) -> Result<String, WorkspaceError> {
-    Ok(parse_collection(json)?.collection_name)
+    Ok(parse_collection(json, &PostmanOptions::default())?.collection_name)
 }
 
 /// The name of a standalone Postman environment export, suggested like

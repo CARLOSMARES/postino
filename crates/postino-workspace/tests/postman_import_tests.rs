@@ -43,18 +43,17 @@ fn import_collection_creates_a_folder_named_after_it_with_its_requests() {
 }
 
 #[test]
-fn import_collection_reports_a_warning_for_the_unsupported_formdata_body() {
+fn import_collection_writes_form_data_as_multipart() {
     let temp = TempDir::new().expect("temp dir");
     let mut workspace = Workspace::open(temp.path()).expect("open workspace");
     let report = workspace
         .import_postman_collection(COLLECTION)
         .expect("import collection");
-    assert!(
-        report
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("formdata"))
-    );
+    let multipart = report.created_files.iter().any(|id| {
+        std::fs::read_to_string(temp.path().join(id))
+            .is_ok_and(|text| text.contains("::: body multipart"))
+    });
+    assert!(multipart, "{:?}", report.created_files);
 }
 
 #[test]

@@ -218,16 +218,13 @@ If the first `test()` fails (say the API returned `200`), the second one still r
 ## 4. Postman import
 
 When importing a Postman collection, `prerequest` and `test` events attached to an individual
-request are copied into that request's `::: pre`/`::: post` sections, but **entirely commented
-out**, with a fixed first line:
+request are converted into that request's `::: pre`/`::: post` sections
+(`postino_format::postman`, see `docs/postman-import.md`). A statement with no equivalent stays as
+a comment, under a first line:
 
 ```
-// Imported from Postman. The pm.* API is not supported, adapt it.
+// Imported from Postman. What could not be converted is commented out below.
 ```
-
-`pm.*` (Postman's own script API: `pm.environment`, `pm.test`, `pm.response`, ...) has no
-equivalent in Postino, so nothing is translated automatically; the commented-out code is only a
-starting point to adapt by hand using the globals documented above.
 
 A `prerequest` or `test` event attached at the **collection or folder level**, rather than to one
 specific request, is **not imported at all**: there is no single request for it to attach to.

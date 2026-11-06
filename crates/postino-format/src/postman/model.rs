@@ -24,11 +24,17 @@ pub(super) struct RawCollection {
     pub(super) event: Option<Vec<RawEvent>>,
 }
 
-/// The `info` object of a collection, we only need the collection name.
+/// The `info` object of a collection.
 #[derive(Debug, Deserialize, Default)]
 pub(super) struct RawInfo {
     #[serde(default)]
     pub(super) name: String,
+    /// Identifies the collection across exports, to tell a later import of it.
+    #[serde(default, rename = "_postman_id")]
+    pub(super) postman_id: String,
+    /// The URL of the schema, which names the format version.
+    #[serde(default)]
+    pub(super) schema: String,
 }
 
 /// One entry of an `item` array: either a folder (has its own `item` array) or a request (has a
@@ -45,6 +51,20 @@ pub(super) struct RawItem {
     pub(super) event: Option<Vec<RawEvent>>,
     #[serde(default)]
     pub(super) auth: Option<RawAuth>,
+    /// The saved examples of a request.
+    #[serde(default)]
+    pub(super) response: Vec<RawSavedResponse>,
+}
+
+/// A saved example of a request.
+#[derive(Debug, Deserialize, Default)]
+pub(super) struct RawSavedResponse {
+    #[serde(default)]
+    pub(super) name: Option<String>,
+    #[serde(default)]
+    pub(super) code: Option<u32>,
+    #[serde(default)]
+    pub(super) body: Option<String>,
 }
 
 /// The `request` object of a request item.
@@ -116,6 +136,8 @@ pub(super) struct RawBody {
     pub(super) options: Option<RawBodyOptions>,
     #[serde(default)]
     pub(super) urlencoded: Vec<RawFormParam>,
+    #[serde(default)]
+    pub(super) formdata: Vec<RawFormDataParam>,
 }
 
 /// The `body.options` object, we only need the raw body language.
@@ -142,6 +164,22 @@ pub(super) struct RawFormParam {
     pub(super) disabled: bool,
 }
 
+/// A field of a `formdata` body: a text field, or a file field with its path in `src`.
+#[derive(Debug, Deserialize, Default)]
+pub(super) struct RawFormDataParam {
+    pub(super) key: String,
+    #[serde(default)]
+    pub(super) value: Option<Value>,
+    /// `text` or `file`.
+    #[serde(default, rename = "type")]
+    pub(super) kind: Option<String>,
+    /// The path of a file field: a string, or an array when several files were picked.
+    #[serde(default)]
+    pub(super) src: Option<Value>,
+    #[serde(default)]
+    pub(super) disabled: bool,
+}
+
 /// An `auth` object, at the collection, folder or request level.
 #[derive(Debug, Deserialize, Default)]
 pub(super) struct RawAuth {
@@ -153,6 +191,8 @@ pub(super) struct RawAuth {
     pub(super) basic: Vec<RawAuthParam>,
     #[serde(default)]
     pub(super) apikey: Vec<RawAuthParam>,
+    #[serde(default)]
+    pub(super) oauth2: Vec<RawAuthParam>,
 }
 
 /// One `key`/`value` entry of an auth block (for example `{"key": "token", "value": "..."}`).
@@ -232,6 +272,10 @@ pub(super) struct RawVariable {
     pub(super) key: Option<String>,
     #[serde(default)]
     pub(super) value: Option<Value>,
+    #[serde(default, rename = "type")]
+    pub(super) kind: Option<String>,
+    #[serde(default)]
+    pub(super) disabled: bool,
 }
 
 /// The root of a `*.postman_environment.json` export.

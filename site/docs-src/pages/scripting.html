@@ -181,7 +181,7 @@ console.log("headers", req.headers.get("Authorization") ? "with auth" : "without
 <p>The pre-request and post-response scripts each have their own budget. Going over a limit is reported as a script error and never crashes the app.</p>
 
 <h2>Moving scripts from Postman</h2>
-<p>When you <a href="postman-import.html">import a Postman collection</a>, request scripts are copied into <code>::: pre</code> and <code>::: post</code>, fully commented out, under the line <code>// Imported from Postman. The pm.* API is not supported, adapt it.</code> This table helps with the translation:</p>
+<p>When you <a href="postman-import.html">import a Postman collection</a>, request scripts are converted with this table. What has no equivalent stays as a comment, under the line <code>// Imported from Postman. What could not be converted is commented out below.</code></p>
 <div class="table"><table>
     <thead><tr><th>Postman</th><th>Postino</th></tr></thead>
     <tbody>
@@ -191,17 +191,24 @@ console.log("headers", req.headers.get("Authorization") ? "with auth" : "without
         <tr><td><code>pm.expect(a).to.include(b)</code></td><td><code>expect(a).toContain(b)</code></td></tr>
         <tr><td><code>pm.expect(a).to.have.property(p)</code></td><td><code>expect(a).toHaveProperty(p)</code></td></tr>
         <tr><td><code>pm.expect(a).to.be.above(b)</code></td><td><code>expect(a).toBeGreaterThan(b)</code></td></tr>
+        <tr><td><code>pm.expect(a).to.be.below(b)</code></td><td><code>expect(a).toBeLessThan(b)</code></td></tr>
+        <tr><td><code>pm.expect(a).to.match(r)</code></td><td><code>expect(a).toMatch(r)</code></td></tr>
+        <tr><td><code>pm.expect(a).to.be.true</code>, <code>false</code>, <code>null</code></td><td><code>expect(a).toBe(true)</code>, and so on</td></tr>
+        <tr><td><code>pm.expect(a).to.not.equal(b)</code></td><td><code>expect(a).not.toBe(b)</code></td></tr>
         <tr><td><code>pm.response.to.have.status(200)</code></td><td><code>expect(res.status).toBe(200)</code></td></tr>
+        <tr><td><code>pm.response.to.be.ok</code></td><td><code>expect(res.status).toBeLessThan(300)</code></td></tr>
         <tr><td><code>pm.response.code</code></td><td><code>res.status</code></td></tr>
         <tr><td><code>pm.response.json()</code></td><td><code>res.json()</code></td></tr>
         <tr><td><code>pm.response.text()</code></td><td><code>res.body</code></td></tr>
         <tr><td><code>pm.response.headers.get(name)</code></td><td><code>res.headers.get(name)</code></td></tr>
         <tr><td><code>pm.response.responseTime</code></td><td><code>res.timeMs</code></td></tr>
         <tr><td><code>pm.environment.set(k, v)</code>, <code>pm.collectionVariables.set</code>, <code>pm.globals.set</code></td><td><code>env.set(k, v)</code> (session only)</td></tr>
-        <tr><td><code>pm.environment.get(k)</code></td><td><code>env.get(k)</code></td></tr>
+        <tr><td><code>pm.environment.get(k)</code>, <code>pm.collectionVariables.get</code>, <code>pm.globals.get</code></td><td><code>env.get(k)</code></td></tr>
+        <tr><td><code>pm.environment.unset(k)</code></td><td><code>env.unset(k)</code></td></tr>
+        <tr><td><code>pm.variables.get(k)</code></td><td><code>(vars.get(k) ?? env.get(k))</code></td></tr>
         <tr><td><code>pm.variables.set(k, v)</code></td><td><code>vars.set(k, v)</code></td></tr>
         <tr><td><code>pm.request.headers.add({ key, value })</code></td><td><code>req.headers.set(key, value)</code></td></tr>
-        <tr><td><code>pm.request.url</code></td><td><code>req.url</code></td></tr>
+        <tr><td><code>pm.request.url</code>, <code>pm.request.method</code></td><td><code>req.url</code>, <code>req.method</code></td></tr>
         <tr><td><code>pm.sendRequest(...)</code></td><td>Not available. Use a separate request.</td></tr>
         <tr><td><code>CryptoJS</code>, <code>require(...)</code></td><td>Not available.</td></tr>
     </tbody>

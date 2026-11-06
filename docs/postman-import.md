@@ -23,17 +23,21 @@ sanitized for every OS (Windows-reserved names and characters, trailing dots and
 | Headers, including `disabled` ones | Headers, disabled ones as `#` lines |
 | Body mode `raw` (language json, xml or text, text by default) | `::: body json`, `xml` or `text` |
 | Body mode `urlencoded` | `::: body form` |
-| Body modes `formdata`, `file` and `graphql` | Imported as an empty body, with a warning |
+| Body mode `formdata` | `::: body multipart`, a file field as `@path` |
+| Body modes `file` and `graphql` | Imported as an empty body, with a warning |
 | Auth `bearer`, `basic` and `apikey` (header or query location) | `::: auth` section |
 | Description | `::: docs` section |
 | `{{var}}` | Kept as is, the syntax is compatible |
-| Collection `variable` array | `environments/<collection name>.env` |
+| Collection `variable` array | Copied into every imported environment; `environments/<collection name>.env` when there is none. Those of type `secret` go to `.local.env` |
 
 Auth set on the collection or on a folder is inherited by the requests below it that use
 `inherit` or define no auth of their own.
 
-Scripts are not translated. `prerequest` and `test` events of a request are copied into `::: pre`
-and `::: post` fully commented out, so they stay as a starting point to adapt by hand. Events at
+Scripts of a request are converted by `postman/script.rs`, on tokens outside strings and comments.
+A statement that still uses something Postino does not have (`pm.sendRequest`, `CryptoJS`, a
+matcher with no equivalent) stays as a comment, and a script whose brackets do not balance is
+commented out whole. `tests/postman_scripts.rs` in `postino-runner` runs converted scripts in the
+sandbox. The result per request is a list of `RequestIssue`, for the wizard's preview. Events at
 the collection or folder level are not imported at all, and each one raises a warning. See
 `docs/scripting.md`.
 

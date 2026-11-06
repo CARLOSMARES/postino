@@ -6,7 +6,9 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use postino_core::{ApiKeyLocation, Auth, Body, KeyValue, Method};
-use postino_format::postman::{ImportFolder, parse_collection, parse_environment};
+use postino_format::postman::{
+    ImportFolder, IssueLevel, PostmanOptions, RequestIssue, parse_collection, parse_environment,
+};
 use pretty_assertions::assert_eq;
 
 const COLLECTION: &str = include_str!("fixtures/postman_collection.json");
@@ -34,9 +36,17 @@ fn find_folder<'a>(folders: &'a [ImportFolder], name: &str) -> &'a ImportFolder 
         .unwrap_or_else(|| panic!("folder {name:?} not found"))
 }
 
+/// The options with everything on, the docs included.
+fn everything() -> PostmanOptions {
+    PostmanOptions {
+        docs: true,
+        ..PostmanOptions::default()
+    }
+}
+
 #[test]
 fn collection_name_and_top_level_shape() {
-    let plan = parse_collection(COLLECTION).expect("valid fixture collection");
+    let plan = parse_collection(COLLECTION, &everything()).expect("valid fixture collection");
     assert_eq!(plan.collection_name, "Demo API");
     assert_eq!(plan.root.folders.len(), 2);
     assert_eq!(plan.root.requests.len(), 1);
@@ -45,7 +55,7 @@ fn collection_name_and_top_level_shape() {
 
 #[test]
 fn collection_variables_become_an_environment() {
-    let plan = parse_collection(COLLECTION).expect("valid fixture collection");
+    let plan = parse_collection(COLLECTION, &everything()).expect("valid fixture collection");
     assert_eq!(
         plan.variables,
         vec![
@@ -57,7 +67,7 @@ fn collection_variables_become_an_environment() {
 
 #[test]
 fn root_request_inherits_collection_bearer_auth() {
-    let plan = parse_collection(COLLECTION).expect("valid fixture collection");
+    let plan = parse_collection(COLLECTION, &everything()).expect("valid fixture collection");
     let (name, ping) = &plan.root.requests[0];
     assert_eq!(name, "Ping");
     assert_eq!(ping.method, Method::Get);
@@ -73,7 +83,7 @@ fn root_request_inherits_collection_bearer_auth() {
 
 #[test]
 fn login_request_maps_headers_body_docs_and_folder_auth() {
-    let plan = parse_collection(COLLECTION).expect("valid fixture collection");
+    let plan = parse_collection(COLLECTION, &everything()).expect("valid fixture collection");
     let auth_folder = find_folder(&plan.root.folders, "Auth");
     let (name, login) = auth_folder
         .requests
@@ -103,8 +113,8 @@ fn login_request_maps_headers_body_docs_and_folder_auth() {
 }
 
 #[test]
-fn login_scripts_are_commented_out_with_the_fixed_header() {
-    let plan = parse_collection(COLLECTION).expect("valid fixture collection");
+fn login_scripts_are_converted() {
+    let plan = parse_collection(COLLECTION, &everything()).expect("valid fixture collection");
     let auth_folder = find_folder(&plan.root.folders, "Auth");
     let (_, login) = auth_folder
         .requests
@@ -112,23 +122,115 @@ fn login_scripts_are_commented_out_with_the_fixed_header() {
         .find(|(name, _)| name == "Login")
         .expect("Login request");
 
-    assert_eq!(
-        login.pre_script,
-        "// Imported from Postman. The pm.* API is not supported, adapt it.\n\
-         // pm.environment.set('ts', Date.now());"
-    );
+    assert_eq!(login.pre_script, "env.set('ts', Date.now());");
     assert_eq!(
         login.post_script,
-        "// Imported from Postman. The pm.* API is not supported, adapt it.\n\
-         // pm.test('status is 200', function () {\n\
-         //   pm.response.to.have.status(200);\n\
-         // });"
+        "test('status is 200', function () {\n  expect(res.status).toBe(200);\n});"
     );
 }
 
 #[test]
+fn scripts_are_commented_out_when_the_option_is_off() {
+    let options = PostmanOptions {
+        scripts: false,
+        ..everything()
+    };
+    let plan = parse_collection(COLLECTION, &options).expect("valid fixture collection");
+    let auth_folder = find_folder(&plan.root.folders, "Auth");
+    let (index, (_, login)) = auth_folder
+        .requests
+        .iter()
+        .enumerate()
+        .find(|(_, (name, _))| name == "Login")
+        .expect("Login request");
+    assert_eq!(
+        login.pre_script,
+        "// Imported from Postman. Scripts were not converted, adapt the pm.* calls.\n\
+         // pm.environment.set('ts', Date.now());"
+    );
+    assert_eq!(
+        auth_folder.issues[index],
+        vec![RequestIssue::ScriptNotConverted]
+    );
+}
+
+#[test]
+fn form_data_becomes_multipart_with_its_files() {
+    let text = r#"{"info": {"name": "x"}, "item": [{"name": "Up", "request": {"method": "POST",
+      "url": "http://x", "body": {"mode": "formdata", "formdata": [
+        {"key": "note", "value": "hi", "type": "text"},
+        {"key": "handle", "value": "@me", "type": "text"},
+        {"key": "off", "value": "x", "type": "text", "disabled": true},
+        {"key": "doc", "type": "file", "src": "/home/ana/doc.pdf"},
+        {"key": "many", "type": "file", "src": ["/a.png", "/b.png"]}
+      ]}}}]}"#;
+    let plan = parse_collection(text, &everything()).expect("valid collection");
+    let mut off = KeyValue::new("off", "x");
+    off.enabled = false;
+    assert_eq!(
+        plan.root.requests[0].1.body,
+        Body::Multipart(vec![
+            KeyValue::new("note", "hi"),
+            KeyValue::new("handle", "@@me"),
+            off,
+            KeyValue::new("doc", "@/home/ana/doc.pdf"),
+            KeyValue::new("many", "@/a.png"),
+        ])
+    );
+    assert_eq!(
+        plan.root.issues[0],
+        vec![RequestIssue::FormDataFile, RequestIssue::FormDataManyFiles]
+    );
+}
+
+#[test]
+fn oauth2_sends_its_access_token_from_a_local_variable() {
+    let text = r#"{"info": {"name": "x"}, "auth": {"type": "oauth2", "oauth2": [
+        {"key": "accessToken", "value": "tok"}, {"key": "tokenType", "value": "Bearer"}
+      ]}, "item": [{"name": "A", "request": {"method": "GET", "url": "http://x"}}]}"#;
+    let plan = parse_collection(text, &everything()).expect("valid collection");
+    assert_eq!(
+        plan.root.requests[0].1.auth,
+        Auth::Bearer {
+            token: "{{oauth2AccessToken}}".to_string()
+        }
+    );
+    assert_eq!(
+        plan.secret_variables,
+        vec![KeyValue::new("oauth2AccessToken", "tok")]
+    );
+    assert_eq!(plan.root.issues[0], vec![RequestIssue::OAuth2Token]);
+    assert_eq!(RequestIssue::OAuth2Token.level(), IssueLevel::Warning);
+}
+
+#[test]
+fn an_auth_postino_does_not_have_is_unsupported() {
+    let text = r#"{"info": {"name": "x"}, "item": [{"name": "A", "request": {"method": "GET",
+      "url": "http://x", "auth": {"type": "hawk"}}}]}"#;
+    let plan = parse_collection(text, &everything()).expect("valid collection");
+    assert_eq!(plan.root.requests[0].1.auth, Auth::None);
+    let issue = &plan.root.issues[0][0];
+    assert_eq!(issue, &RequestIssue::AuthUnsupported("hawk".to_string()));
+    assert_eq!(issue.level(), IssueLevel::Unsupported);
+}
+
+#[test]
+fn descriptions_and_examples_go_in_the_docs_only_with_the_option() {
+    let text = r#"{"info": {"name": "x"}, "item": [{"name": "A",
+      "request": {"method": "GET", "url": "http://x", "description": "What it does"},
+      "response": [{"name": "Found", "code": 200, "body": "{}"}]}]}"#;
+    let plan = parse_collection(text, &everything()).expect("valid collection");
+    assert_eq!(
+        plan.root.requests[0].1.docs,
+        "What it does\n\n## Found (200)\n\n```\n{}\n```"
+    );
+    let plan = parse_collection(text, &PostmanOptions::default()).expect("valid collection");
+    assert_eq!(plan.root.requests[0].1.docs, "");
+}
+
+#[test]
 fn nested_users_folder_inherits_auth_through_its_parent_folder() {
-    let plan = parse_collection(COLLECTION).expect("valid fixture collection");
+    let plan = parse_collection(COLLECTION, &everything()).expect("valid fixture collection");
     let auth_folder = find_folder(&plan.root.folders, "Auth");
     let users_folder = find_folder(&auth_folder.folders, "Users");
 
@@ -152,7 +254,7 @@ fn nested_users_folder_inherits_auth_through_its_parent_folder() {
 
 #[test]
 fn explicit_noauth_request_gets_no_auth() {
-    let plan = parse_collection(COLLECTION).expect("valid fixture collection");
+    let plan = parse_collection(COLLECTION, &everything()).expect("valid fixture collection");
     let auth_folder = find_folder(&plan.root.folders, "Auth");
     let users_folder = find_folder(&auth_folder.folders, "Users");
 
@@ -171,7 +273,7 @@ fn explicit_noauth_request_gets_no_auth() {
 
 #[test]
 fn every_body_mode_maps_as_specified() {
-    let plan = parse_collection(COLLECTION).expect("valid fixture collection");
+    let plan = parse_collection(COLLECTION, &everything()).expect("valid fixture collection");
     let uploads = find_folder(&plan.root.folders, "Uploads");
     let body_of = |name: &str| {
         uploads
@@ -190,7 +292,7 @@ fn every_body_mode_maps_as_specified() {
         body_of("Form encoded"),
         Body::Form(vec![KeyValue::new("a", "1"), disabled_b])
     );
-    assert_eq!(body_of("Multipart"), Body::None);
+    assert!(matches!(body_of("Multipart"), Body::Multipart(_)));
     assert_eq!(body_of("Raw file"), Body::None);
     assert_eq!(body_of("GraphQL query"), Body::None);
     assert_eq!(
@@ -201,8 +303,8 @@ fn every_body_mode_maps_as_specified() {
 
 #[test]
 fn unsupported_body_modes_produce_a_warning_each() {
-    let plan = parse_collection(COLLECTION).expect("valid fixture collection");
-    for keyword in ["formdata", "file", "graphql"] {
+    let plan = parse_collection(COLLECTION, &everything()).expect("valid fixture collection");
+    for keyword in ["file", "graphql"] {
         assert!(
             plan.warnings
                 .iter()
@@ -215,7 +317,7 @@ fn unsupported_body_modes_produce_a_warning_each() {
 
 #[test]
 fn apikey_auth_in_header_location_is_kept() {
-    let plan = parse_collection(COLLECTION).expect("valid fixture collection");
+    let plan = parse_collection(COLLECTION, &everything()).expect("valid fixture collection");
     let uploads = find_folder(&plan.root.folders, "Uploads");
     let (_, request) = uploads
         .requests
@@ -235,7 +337,7 @@ fn apikey_auth_in_header_location_is_kept() {
 
 #[test]
 fn apikey_auth_in_query_location_is_kept() {
-    let plan = parse_collection(COLLECTION).expect("valid fixture collection");
+    let plan = parse_collection(COLLECTION, &everything()).expect("valid fixture collection");
     let uploads = find_folder(&plan.root.folders, "Uploads");
     let (_, request) = uploads
         .requests
@@ -263,7 +365,7 @@ fn apikey_auth_in_query_location_is_kept() {
 
 #[test]
 fn folder_without_its_own_auth_inherits_the_collection_auth() {
-    let plan = parse_collection(COLLECTION).expect("valid fixture collection");
+    let plan = parse_collection(COLLECTION, &everything()).expect("valid fixture collection");
     let uploads = find_folder(&plan.root.folders, "Uploads");
     let (_, form_encoded) = uploads
         .requests
@@ -310,13 +412,13 @@ fn environment_without_a_name_falls_back_and_warns() {
 
 #[test]
 fn invalid_json_is_a_parse_error() {
-    assert!(parse_collection("not json").is_err());
+    assert!(parse_collection("not json", &everything()).is_err());
     assert!(parse_environment("not json").is_err());
 }
 
 #[test]
 fn every_imported_request_parses_back_with_postino_format() {
-    let plan = parse_collection(COLLECTION).expect("valid fixture collection");
+    let plan = parse_collection(COLLECTION, &everything()).expect("valid fixture collection");
 
     fn check_folder(folder: &ImportFolder) {
         for (name, request) in &folder.requests {
@@ -343,7 +445,7 @@ fn collection_variables_convert_non_string_scalars_and_warn_on_complex_values() 
         ],
         "item": []
     }"#;
-    let plan = parse_collection(json).expect("valid collection");
+    let plan = parse_collection(json, &everything()).expect("valid collection");
     assert_eq!(
         plan.variables,
         vec![
@@ -403,7 +505,7 @@ fn warns_about_dropped_collection_and_folder_level_event_scripts() {
             }
         ]
     }"#;
-    let plan = parse_collection(json).expect("valid collection");
+    let plan = parse_collection(json, &everything()).expect("valid collection");
     assert!(
         plan.warnings
             .iter()
