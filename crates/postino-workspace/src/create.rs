@@ -38,6 +38,9 @@ pub const GITIGNORE: &str = "\
 
 # Load test run history
 .postino/runs/
+
+# Report of the last import
+.postino/import-report.md
 ";
 
 /// What [`create_workspace`] puts in a new workspace folder.

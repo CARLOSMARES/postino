@@ -195,7 +195,8 @@ fn pick_existing(block: WeakEntity<DestinationBlock>, cx: &mut App) {
     );
 }
 
-/// Renders the block. `collection` is the collection folder's name, for the "added as" line.
+/// Renders the block. `collection` is the collection folder's name, for the "added as" line, empty
+/// when the import writes only environments.
 pub(crate) fn render_destination(
     block: &Entity<DestinationBlock>,
     collection: &str,
@@ -390,7 +391,7 @@ fn render_with_workspace(
             )
         })
         .when(
-            matches!(state.choice, Choice::Current | Choice::Recent),
+            matches!(state.choice, Choice::Current | Choice::Recent) && !collection.is_empty(),
             |rows| {
                 let workspace = match state.choice {
                     Choice::Recent => recent_label_for(state),

@@ -1,25 +1,43 @@
 title: Importing from Postman
-description: Import Postman collections (v2.1 and v2.0) and environment exports into Postino as plain .postino and .env files.
+description: Import Postman collections (v2.1 and v2.0), environment and globals exports into Postino as plain .postino and .env files, with a wizard that shows what converts.
 ---
 <h1>Importing from Postman</h1>
-<p class="lead">Bring your Postman collections and environments over and keep working with them as plain files. The import never overwrites anything and tells you exactly what it created and what it could not convert.</p>
+<p class="lead">Bring your Postman collections and environments over and keep working with them as plain files. The import wizard shows what converts before writing anything, never overwrites a file and leaves a report of what needs a look.</p>
 
 <h2>Exporting from Postman</h2>
 <ul>
     <li><strong>A collection:</strong> in Postman, open the collection's menu, choose <strong>Export</strong> and pick <strong>Collection v2.1</strong>. You get a <code>*.postman_collection.json</code> file.</li>
-    <li><strong>An environment:</strong> open the environment's menu and choose <strong>Export</strong>. You get a <code>*.postman_environment.json</code> file.</li>
+    <li><strong>An environment:</strong> open the environment's menu and choose <strong>Export</strong>. You get a <code>*.postman_environment.json</code> file. Globals export the same way.</li>
+    <li><strong>Everything:</strong> Postman's data export gives a <code>.zip</code> with your collections and environments.</li>
 </ul>
 
 <h2>Importing</h2>
-<ol class="steps">
-    <li>Open the workspace you want to import into.</li>
-    <li>In the sidebar header, open the <strong>Import</strong> menu and choose <strong>Postman collection…</strong> or <strong>Postman environment…</strong>. Both are also in the command palette.</li>
-    <li>Pick the exported file.</li>
-    <li>A summary lists the number of files created and any warnings. The new collection appears in the sidebar and the new environment in the environment picker.</li>
-</ol>
-
-<h3>Importing without a workspace</h3>
-<p>Coming from Postman, the first thing you may want to do is import a collection, before you have any workspace. That works too: with no workspace open, click <strong>Import from Postman…</strong> in the <a href="interface.html#welcome-tab">welcome tab</a> (it imports a collection), or run <strong>Import Postman collection…</strong> or <strong>Import Postman environment…</strong> from the command palette, and pick the exported file. Postino reads it, then opens the <a href="workspaces.html#creating-a-workspace">New workspace</a> dialog with the name of the collection or environment as the folder name. <strong>Create</strong> makes an empty folder, without the example request, opens it as the workspace and imports the file into it. Cancelling either the file picker or the dialog writes nothing.</p>
+<p>Postman goes through the same three step wizard as <a href="openapi-import.html">OpenAPI</a>. Open it from the sidebar's <strong>Import</strong> menu, <strong>Postman (collection or environment)…</strong>, from <strong>Import from Postman…</strong> in the <a href="interface.html#welcome-tab">welcome tab</a>, or from the command palette. Dropping a file anywhere on the window opens it too, on the Options step. It works with or without a workspace open.</p>
+<h3>Step 1: Source</h3>
+<p>The format is detected from the content, whatever chip is selected: <code>info.schema</code> names a collection and <code>_postman_variable_scope</code> an environment or the globals.</p>
+<ul>
+    <li><strong>File:</strong> one or more files, picked or dropped, or a <code>.zip</code> data export.</li>
+    <li><strong>Paste text:</strong> one export pasted as JSON.</li>
+    <li><strong>Folder:</strong> every Postman export in a folder and its subfolders.</li>
+</ul>
+<p>The list shows what was found, with a checkbox for each file. Environments are imported with the collection; uncheck the ones you do not want. An environment or the globals can be imported on their own, with no collection.</p>
+<h3>Step 2: Options</h3>
+<p>The <strong>Destination</strong> block works <a href="openapi-import.html#where-the-collection-goes">as for OpenAPI</a>. Then the name of the collection, the environments, and what to convert:</p>
+<div class="table"><table>
+    <thead><tr><th>Option</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+        <tr><td>Folders to subfolders</td><td>On</td><td>Keeps the names and the order. Off, every request goes at the top of the collection.</td></tr>
+        <tr><td>Collection variables to every environment</td><td>On</td><td>Postino activates one environment at a time, so collection variables and globals are copied into each one. A value of the environment wins.</td></tr>
+        <tr><td>Secrets to .local.env</td><td>On</td><td>Variables of type secret go to <code>.local.env</code>, out of the versioned file. Off, they are left out.</td></tr>
+        <tr><td>Authorization</td><td>On</td><td>Converts the auth of each request. Off, requests have none.</td></tr>
+        <tr><td>Convert pm.* scripts</td><td>On</td><td>Converts scripts. Off, they are copied as comments.</td></tr>
+        <tr><td>Descriptions and saved examples</td><td>Off</td><td>Writes them in the Docs tab of each request.</td></tr>
+    </tbody>
+</table></div>
+<h3>Step 3: Preview</h3>
+<p>The tree of requests, with a checkbox on each, its path and what to know about it. Three counts sum up the selection: <strong>complete</strong>, <strong>with warnings</strong> and <strong>unsupported</strong>. Nothing has been written yet. The last button writes everything at once; if that fails, what the import created is removed.</p>
+<h3>The report</h3>
+<p>When some request needs a look, the last screen says how many and <strong>View report</strong> opens <code>.postino/import-report.md</code>, in the workspace: each request with what to review, and the warnings of the import. The next import replaces it. A workspace created by Postino keeps it out of Git.</p>
 
 <h2>Collections</h2>
 <p>The collection becomes a new folder at the root of the workspace, named after it. If a folder with that name exists, the new one gets a <code>(2)</code>, <code>(3)</code> suffix, so nothing is ever overwritten. Postman folders become subfolders, and each request becomes a <code>.postino</code> file.</p>

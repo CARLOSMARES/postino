@@ -22,7 +22,7 @@ pub const MANIFEST_FILE: &str = ".openapi.toml";
 const MANIFEST_VERSION: u32 = 1;
 
 /// The comment on top of a manifest file.
-const MANIFEST_HEADER: &str = "# Written by Postino's OpenAPI import, to update this collection when the spec changes.\n# Keep it with the requests. Editing it by hand is not needed.\n\n";
+const MANIFEST_HEADER: &str = "# Written by Postino's import, to update this collection when its source changes.\n# Keep it with the requests. Editing it by hand is not needed.\n\n";
 
 /// What an OpenAPI import remembers about a collection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

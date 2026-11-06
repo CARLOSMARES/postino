@@ -70,46 +70,6 @@ _version: 2
   es: "Importar"
   gl: "Importar"
   it: "Importa"
-"shell.import.menu_collection":
-  en: "Postman collection..."
-  es: "Colección de Postman..."
-  gl: "Colección de Postman..."
-  it: "Raccolta Postman..."
-"shell.import.menu_environment":
-  en: "Postman environment..."
-  es: "Entorno de Postman..."
-  gl: "Contorno de Postman..."
-  it: "Ambiente Postman..."
-"shell.import.read_failed":
-  en: "Could not read %{path}: %{error}"
-  es: "No se pudo leer %{path}: %{error}"
-  gl: "Non se puido ler %{path}: %{error}"
-  it: "Impossibile leggere %{path}: %{error}"
-"shell.import.collection_done":
-  en: "Postman collection imported"
-  es: "Colección de Postman importada"
-  gl: "Colección de Postman importada"
-  it: "Raccolta Postman importata"
-"shell.import.environment_done":
-  en: "Postman environment imported"
-  es: "Entorno de Postman importado"
-  gl: "Contorno de Postman importado"
-  it: "Ambiente Postman importato"
-"shell.import.files_created.one":
-  en: "%{count} file created."
-  es: "Se creó %{count} archivo."
-  gl: "Creouse %{count} ficheiro."
-  it: "Creato %{count} file."
-"shell.import.files_created.other":
-  en: "%{count} files created."
-  es: "Se crearon %{count} archivos."
-  gl: "Creáronse %{count} ficheiros."
-  it: "Creati %{count} file."
-"shell.import.warnings":
-  en: "Warnings:"
-  es: "Advertencias:"
-  gl: "Advertencias:"
-  it: "Avvisi:"
 "shell.sidebar.filter":
   en: "Filter"
   es: "Filtrar"
@@ -285,8 +245,3 @@ _version: 2
   es: "No se pudo crear el espacio de trabajo: %{error}"
   gl: "Non se puido crear o espazo de traballo: %{error}"
   it: "Impossibile creare lo spazio di lavoro: %{error}"
-"shell.new_workspace.import_note":
-  en: "A new, empty folder for the Postman export %{file}."
-  es: "Una carpeta nueva y vacía para la exportación de Postman %{file}."
-  gl: "Un cartafol novo e baleiro para a exportación de Postman %{file}."
-  it: "Una nuova cartella vuota per l'esportazione di Postman %{file}."

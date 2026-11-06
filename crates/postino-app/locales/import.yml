@@ -155,3 +155,288 @@ _version: 2
   es: "Abrir espacio de trabajo"
   gl: "Abrir espazo de traballo"
   it: "Apri spazio di lavoro"
+"import.title":
+  en: "Import"
+  es: "Importar"
+  gl: "Importar"
+  it: "Importa"
+"import.format":
+  en: "Format"
+  es: "Formato"
+  gl: "Formato"
+  it: "Formato"
+"import.detected":
+  en: "Detected from the file"
+  es: "Detectado al leer el fichero"
+  gl: "Detectado ao ler o ficheiro"
+  it: "Rilevato dal file"
+"import.postman.drop":
+  en: "Drop one or more Postman files or"
+  es: "Arrastra uno o varios ficheros de Postman o"
+  gl: "Arrastra un ou varios ficheiros de Postman ou"
+  it: "Trascina uno o più file di Postman oppure"
+"import.postman.types":
+  en: "Collection v2.0 / v2.1 · Environment · Globals · .zip export"
+  es: "Collection v2.0 / v2.1 · Environment · Globals · .zip de exportación"
+  gl: "Collection v2.0 / v2.1 · Environment · Globals · .zip de exportación"
+  it: "Collection v2.0 / v2.1 · Environment · Globals · .zip di esportazione"
+"import.postman.supported":
+  en: "Collection v2.1 · v2.0 · Environment · Globals"
+  es: "Collection v2.1 · v2.0 · Environment · Globals"
+  gl: "Collection v2.1 · v2.0 · Environment · Globals"
+  it: "Collection v2.1 · v2.0 · Environment · Globals"
+"import.postman.paste_hint":
+  en: "Paste a collection, environment or globals export. Paste one at a time: use files for several."
+  es: "Pega una exportación de colección, entorno o globals. De una en una: para varias, usa ficheros."
+  gl: "Pega unha exportación de colección, contorno ou globals. De unha en unha: para varias, usa ficheiros."
+  it: "Incolla un'esportazione di raccolta, ambiente o globals. Una alla volta: per più di una, usa i file."
+"import.postman.folder_hint":
+  en: "Every Postman export in the folder and its subfolders is read."
+  es: "Se leen todas las exportaciones de Postman de la carpeta y sus subcarpetas."
+  gl: "Lense todas as exportacións de Postman do cartafol e os seus subcartafoles."
+  it: "Vengono lette tutte le esportazioni di Postman della cartella e delle sottocartelle."
+"import.postman.none_found":
+  en: "No Postman export found."
+  es: "No se ha encontrado ninguna exportación de Postman."
+  gl: "Non se atopou ningunha exportación de Postman."
+  it: "Nessuna esportazione di Postman trovata."
+"import.postman.collection_meta":
+  en: "Collection %{version} · %{requests} · %{folders}"
+  es: "Collection %{version} · %{requests} · %{folders}"
+  gl: "Collection %{version} · %{requests} · %{folders}"
+  it: "Collection %{version} · %{requests} · %{folders}"
+"import.postman.environment_meta":
+  en: "Environment · %{variables}"
+  es: "Environment · %{variables}"
+  gl: "Environment · %{variables}"
+  it: "Environment · %{variables}"
+"import.postman.globals_meta":
+  en: "Globals · %{variables}"
+  es: "Globals · %{variables}"
+  gl: "Globals · %{variables}"
+  it: "Globals · %{variables}"
+"import.postman.variables.one":
+  en: "%{count} variable"
+  es: "%{count} variable"
+  gl: "%{count} variable"
+  it: "%{count} variabile"
+"import.postman.variables.other":
+  en: "%{count} variables"
+  es: "%{count} variables"
+  gl: "%{count} variables"
+  it: "%{count} variabili"
+"import.postman.requests.one":
+  en: "%{count} request"
+  es: "%{count} petición"
+  gl: "%{count} petición"
+  it: "%{count} richiesta"
+"import.postman.requests.other":
+  en: "%{count} requests"
+  es: "%{count} peticiones"
+  gl: "%{count} peticións"
+  it: "%{count} richieste"
+"import.postman.folders.one":
+  en: "%{count} folder"
+  es: "%{count} carpeta"
+  gl: "%{count} cartafol"
+  it: "%{count} cartella"
+"import.postman.folders.other":
+  en: "%{count} folders"
+  es: "%{count} carpetas"
+  gl: "%{count} cartafoles"
+  it: "%{count} cartelle"
+"import.postman.env_note":
+  en: "Environments are imported with the collection. Uncheck the ones you do not want."
+  es: "Los entornos se importan con la colección. Quita los que no quieras."
+  gl: "Os contornos impórtanse coa colección. Quita os que non queiras."
+  it: "Gli ambienti vengono importati con la raccolta. Deseleziona quelli che non vuoi."
+"import.postman.environments":
+  en: "Environments"
+  es: "Entornos"
+  gl: "Contornos"
+  it: "Ambienti"
+"import.postman.convert":
+  en: "Convert"
+  es: "Convertir"
+  gl: "Converter"
+  it: "Converti"
+"import.postman.opt_folders":
+  en: "Folders to subfolders"
+  es: "Carpetas a subcarpetas"
+  gl: "Cartafoles a subcartafoles"
+  it: "Cartelle in sottocartelle"
+"import.postman.opt_folders_sub":
+  en: "Keeps names and order. Off, every request goes at the top of the collection"
+  es: "Conserva nombres y orden. Sin marcar, todas las peticiones van a la raíz de la colección"
+  gl: "Conserva nomes e orde. Sen marcar, todas as peticións van á raíz da colección"
+  it: "Mantiene nomi e ordine. Se disattivato, tutte le richieste vanno in cima alla raccolta"
+"import.postman.opt_variables":
+  en: "Collection variables to every environment"
+  es: "Variables de colección a cada entorno"
+  gl: "Variables de colección a cada contorno"
+  it: "Variabili della raccolta in ogni ambiente"
+"import.postman.opt_variables_sub":
+  en: "Also globals. A value of the environment wins"
+  es: "También las globals. Gana el valor del entorno"
+  gl: "Tamén as globals. Gaña o valor do contorno"
+  it: "Anche le globals. Vince il valore dell'ambiente"
+"import.postman.opt_secrets":
+  en: "Secrets to .local.env"
+  es: "Secretos a .local.env"
+  gl: "Segredos a .local.env"
+  it: "Segreti in .local.env"
+"import.postman.opt_secrets_sub":
+  en: "Variables of type secret. The versioned file does not hold them. Off, they are left out"
+  es: "Variables de tipo secret. El fichero versionado no las contiene. Sin marcar, no se importan"
+  gl: "Variables de tipo secret. O ficheiro versionado non as contén. Sen marcar, non se importan"
+  it: "Variabili di tipo secret. Il file versionato non le contiene. Se disattivato, non vengono importate"
+"import.postman.opt_auth":
+  en: "Authorization"
+  es: "Autorización"
+  gl: "Autorización"
+  it: "Autorizzazione"
+"import.postman.opt_auth_sub":
+  en: "Bearer, Basic, API key and OAuth 2.0 tokens, inherited ones copied to each request"
+  es: "Bearer, Basic, API key y tokens OAuth 2.0; las heredadas se copian a cada petición"
+  gl: "Bearer, Basic, API key e tokens OAuth 2.0; as herdadas cópianse a cada petición"
+  it: "Bearer, Basic, API key e token OAuth 2.0; quelle ereditate vengono copiate in ogni richiesta"
+"import.postman.opt_scripts":
+  en: "Convert pm.* scripts"
+  es: "Convertir scripts pm.*"
+  gl: "Converter scripts pm.*"
+  it: "Converti gli script pm.*"
+"import.postman.opt_scripts_sub":
+  en: "Pre-request and tests. What has no equivalent stays as a comment"
+  es: "Pre-request y tests. Lo que no tiene equivalente queda como comentario"
+  gl: "Pre-request e tests. O que non ten equivalente queda como comentario"
+  it: "Pre-request e test. Ciò che non ha equivalente resta come commento"
+"import.postman.opt_docs":
+  en: "Descriptions and saved examples"
+  es: "Descripciones y ejemplos guardados"
+  gl: "Descricións e exemplos gardados"
+  it: "Descrizioni ed esempi salvati"
+"import.postman.opt_docs_sub":
+  en: "In the Docs tab of each request"
+  es: "En la pestaña Docs de cada petición"
+  gl: "Na lapela Docs de cada petición"
+  it: "Nella scheda Docs di ogni richiesta"
+"import.compat.ok":
+  en: "%{count} complete"
+  es: "%{count} completas"
+  gl: "%{count} completas"
+  it: "%{count} complete"
+"import.compat.warning":
+  en: "%{count} with warnings"
+  es: "%{count} con avisos"
+  gl: "%{count} con avisos"
+  it: "%{count} con avvisi"
+"import.compat.unsupported":
+  en: "%{count} unsupported"
+  es: "%{count} sin soporte"
+  gl: "%{count} sen soporte"
+  it: "%{count} non supportate"
+"import.issue.script_converted":
+  en: "script converted"
+  es: "script convertido"
+  gl: "script convertido"
+  it: "script convertito"
+"import.issue.script_partial":
+  en: "partial script, %{converted} of %{total} statements"
+  es: "script parcial, %{converted} de %{total} sentencias"
+  gl: "script parcial, %{converted} de %{total} sentenzas"
+  it: "script parziale, %{converted} di %{total} istruzioni"
+"import.issue.send_request":
+  en: "pm.sendRequest is not available"
+  es: "pm.sendRequest sin soporte"
+  gl: "pm.sendRequest sen soporte"
+  it: "pm.sendRequest non disponibile"
+"import.issue.script_not_converted":
+  en: "script not converted"
+  es: "script sin convertir"
+  gl: "script sen converter"
+  it: "script non convertito"
+"import.issue.oauth2":
+  en: "OAuth 2.0: fixed token, not renewed"
+  es: "OAuth 2.0: token fijo, no se renueva"
+  gl: "OAuth 2.0: token fixo, non se renova"
+  it: "OAuth 2.0: token fisso, non rinnovato"
+"import.issue.auth_unsupported":
+  en: "%{kind} auth not supported, imported without it"
+  es: "autorización %{kind} sin soporte, se importa sin ella"
+  gl: "autorización %{kind} sen soporte, impórtase sen ela"
+  it: "autorizzazione %{kind} non supportata, importata senza"
+"import.issue.form_data_file":
+  en: "form-data with a file, check the path"
+  es: "form-data con fichero, revisa la ruta"
+  gl: "form-data con ficheiro, revisa a ruta"
+  it: "form-data con file, controlla il percorso"
+"import.issue.form_data_many":
+  en: "form-data with several files, the first is kept"
+  es: "form-data con varios ficheros, se conserva el primero"
+  gl: "form-data con varios ficheiros, consérvase o primeiro"
+  it: "form-data con più file, viene mantenuto il primo"
+"import.issue.body_unsupported":
+  en: "%{kind} body not supported, imported empty"
+  es: "cuerpo %{kind} sin soporte, se importa vacío"
+  gl: "corpo %{kind} sen soporte, impórtase baleiro"
+  it: "corpo %{kind} non supportato, importato vuoto"
+"import.report.title":
+  en: "Import report: %{name}"
+  es: "Informe de importación: %{name}"
+  gl: "Informe de importación: %{name}"
+  it: "Rapporto di importazione: %{name}"
+"import.report.requests":
+  en: "Requests to review"
+  es: "Peticiones que revisar"
+  gl: "Peticións que revisar"
+  it: "Richieste da controllare"
+"import.report.warnings":
+  en: "Warnings"
+  es: "Avisos"
+  gl: "Avisos"
+  it: "Avvisi"
+"import.report.review.one":
+  en: "%{count} request needs a review"
+  es: "%{count} petición necesita revisión"
+  gl: "%{count} petición necesita revisión"
+  it: "%{count} richiesta da controllare"
+"import.report.review.other":
+  en: "%{count} requests need a review"
+  es: "%{count} peticiones necesitan revisión"
+  gl: "%{count} peticións necesitan revisión"
+  it: "%{count} richieste da controllare"
+"import.report.view":
+  en: "View report"
+  es: "Ver informe"
+  gl: "Ver informe"
+  it: "Vedi rapporto"
+"import.environments_only":
+  en: "Import environments"
+  es: "Importar entornos"
+  gl: "Importar contornos"
+  it: "Importa ambienti"
+"import.create_and_import_environments":
+  en: "Create workspace and import environments"
+  es: "Crear espacio de trabajo e importar entornos"
+  gl: "Crear espazo de traballo e importar contornos"
+  it: "Crea spazio di lavoro e importa ambienti"
+"import.done.environments":
+  en: "Imported the environments"
+  es: "Entornos importados"
+  gl: "Contornos importados"
+  it: "Ambienti importati"
+"import.done.environments_note":
+  en: "They are in the environment picker."
+  es: "Ya están en el selector de entornos."
+  gl: "Xa están no selector de contornos."
+  it: "Sono nel selettore degli ambienti."
+"import.menu_postman":
+  en: "Postman (collection or environment)..."
+  es: "Postman (colección o entorno)..."
+  gl: "Postman (colección ou contorno)..."
+  it: "Postman (raccolta o ambiente)..."
+"import.not_recognized":
+  en: "This is not an OpenAPI spec or a Postman export."
+  es: "Esto no es una especificación OpenAPI ni una exportación de Postman."
+  gl: "Isto non é unha especificación OpenAPI nin unha exportación de Postman."
+  it: "Questa non è una specifica OpenAPI né un'esportazione di Postman."

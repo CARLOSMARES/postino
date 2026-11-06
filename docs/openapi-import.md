@@ -86,6 +86,8 @@ on (for the descriptions of the options), the excluded keys, the collapsed folde
 preview rows with their counts. Rows and counts are rebuilt when the selection or a folder
 changes, never in render. The preview tree is a `uniform_list`.
 
+Postman exports go through the same wizard and plan, see `docs/postman-import.md`.
+
 Loading a file or a URL runs on the background executor; parsing the 11 MB GitHub spec takes about
 250 ms in release. The destination is part of the wizard (`state/import_destination.rs`,
 `views/import_destination.rs`): the open workspace, a recent one, a new one or a picked folder.

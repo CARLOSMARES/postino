@@ -15,7 +15,8 @@ description: Every file Postino reads and writes, in your workspace and on your 
         <tr><td><code>&lt;collection&gt;/.openapi.toml</code></td><td>Written by an <a href="openapi-import.html">OpenAPI import</a>: the source of the spec and what it generated, to <a href="openapi-import.html#updating-an-imported-collection">update the collection</a> later. Hidden in the sidebar.</td><td>Yes</td></tr>
         <tr><td><code>.postino/runs/NNNN.json</code></td><td>Load test run history, one file per run: its configuration, thresholds and metrics.</td><td>Your choice</td></tr>
         <tr><td><code>.postino/runs/NNNN.samples.csv.gz</code></td><td>Every request of that run, compressed. See <a href="#load-test-runs">Load test runs</a>.</td><td>Your choice</td></tr>
-        <tr><td><code>.gitignore</code></td><td>Written once, when Postino creates the workspace. It ignores <code>*.local.env</code> and <code>.postino/runs/</code>.</td><td>Yes</td></tr>
+        <tr><td><code>.postino/import-report.md</code></td><td>The report of the last <a href="postman-import.html#the-report">Postman import</a> that had something to report.</td><td>Your choice</td></tr>
+        <tr><td><code>.gitignore</code></td><td>Written once, when Postino creates the workspace. It ignores <code>*.local.env</code>, <code>.postino/runs/</code> and <code>.postino/import-report.md</code>.</td><td>Yes</td></tr>
     </tbody>
 </table></div>
 <p>Postino never writes anything else into the workspace: no settings, no cache, no lock files. It never edits the <code>.gitignore</code> of a folder you open.</p>

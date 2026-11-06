@@ -1,7 +1,8 @@
-//! The "Import OpenAPI" wizard (GitHub #201, Claude Design "OpenAPI Import", 1a): three steps,
-//! Source, Options and Preview, in one modal, then a Done step with the result. The logic lives
-//! in `state/openapi_import.rs`; this renders it and runs the blocking parts (reading a file,
-//! downloading a URL) on the background executor.
+//! The import wizard (GitHub #201, Claude Design "OpenAPI Import", 1a, and #211, "Import Flow", 4):
+//! three steps, Source, Options and Preview, in one modal, then a Done step with the result, for
+//! OpenAPI specs and Postman exports alike. The format is detected from what is read. The logic
+//! lives in `state/openapi_import.rs`; this renders it and runs the blocking parts (reading a
+//! file, downloading a URL) on the background executor.
 //!
 //! The workspace is the destination of the import, chosen in the Options step and created when
 //! the user confirms (GitHub #208, `views/import_destination.rs`).
@@ -20,6 +21,7 @@ use gpui_kit::*;
 use rust_i18n::t;
 
 use postino_format::openapi::{ChangeKind, Grouping, ManifestSource, PlanChange};
+use postino_format::postman::{IssueLevel, PostmanFormat};
 use postino_runner::Client;
 use postino_workspace::{
     ImportOrigin, ImportReport, Workspace, WorkspaceError, openapi_collections_in,
@@ -31,8 +33,9 @@ use crate::state::import_destination::{Target, slug};
 use crate::state::locale::plural;
 use crate::state::number::format_integer;
 use crate::state::openapi_import::{
-    Check, Loaded, LoadedSpec, PreviewRow, RowKind, SourceKind, Step, Wizard, clone_repository,
-    find_existing, load_path, load_text, load_url, scan_folder, source_kind_name, source_kind_of,
+    Check, ImportFormat, Loaded, LoadedSpec, PreviewRow, RowKind, SourceKind, Step, Wizard,
+    clone_repository, find_existing, issue_text, load_files, load_pasted, load_url, report_text,
+    scan_folder, source_kind_name, source_kind_of, sources_of,
 };
 use crate::theme::metrics::{RADIUS_MD, RADIUS_SM};
 use crate::theme::{Palette, PaletteExt};
@@ -67,6 +70,8 @@ const ROW_HEIGHT: f32 = 28.0;
 const CHANGE_KIND_WIDTH: f32 = 72.0;
 /// Widest a change's details get before they are cut.
 const CHANGE_DETAIL_WIDTH: f32 = 240.0;
+/// Width of a Postman request's path in the preview tree.
+const ROW_PATH_WIDTH: f32 = 112.0;
 /// How many steps the stepper shows (Done is not one of them).
 const STEP_COUNT: usize = 3;
 
@@ -81,11 +86,17 @@ struct Done {
     workspace: Option<String>,
     /// Whether that workspace was created by the import.
     created: bool,
+    /// The import report, when there is something in it.
+    report: Option<PathBuf>,
+    /// How many requests need a review.
+    review: usize,
 }
 
 /// The wizard's entity: the plain state plus the inputs and what is being loaded.
 pub(crate) struct ImportWizard {
     state: Wizard,
+    /// Whether the format comes from what was read, rather than from the chips.
+    detected: bool,
     view: WeakEntity<AppView>,
     /// Sends the spec downloads, with the TLS settings of requests. Built on the first load: the
     /// wizard may open from inside an `AppView` update, where `AppView` cannot be read.
@@ -167,13 +178,7 @@ impl ImportWizard {
                 })
             };
             match input {
-                LoadInput::File(path) => {
-                    let shown = path.file_name().map_or_else(
-                        || path.display().to_string(),
-                        |name| name.to_string_lossy().into_owned(),
-                    );
-                    load_path(&path, &shown, &client).map(|loaded| (None, loaded))
-                }
+                LoadInput::Files(paths) => load_files(&paths, &client).map(|loaded| (None, loaded)),
                 LoadInput::Folder(path) => scan_folder(&path, &client).map(|loaded| (None, loaded)),
                 LoadInput::Git { url, branch } => match git {
                     Some(git) => clone_repository(&git, &url, &branch, &client)
@@ -181,7 +186,7 @@ impl ImportWizard {
                     None => Err(t!("openapi.git.missing").into_owned()),
                 },
                 LoadInput::Url(url) => single(load_url(&url, &client)),
-                LoadInput::Text(text) => single(load_text(&text)),
+                LoadInput::Text(text) => load_pasted(&text).map(|loaded| (None, loaded)),
             }
         });
         cx.spawn(async move |wizard, cx| {
@@ -207,7 +212,8 @@ impl ImportWizard {
         match result {
             Ok((checkout, loaded)) => {
                 log::info!(
-                    "OpenAPI import: read {} specs ({} operations), {} files failed, {} catalogs",
+                    "import: read {} Postman exports, {} specs ({} operations), {} files failed, {} catalogs",
+                    loaded.postman.len(),
                     loaded.specs.len(),
                     loaded
                         .specs
@@ -217,14 +223,24 @@ impl ImportWizard {
                     loaded.failures.len(),
                     loaded.catalogs.len()
                 );
-                let found = !loaded.specs.is_empty();
+                let found = !loaded.specs.is_empty() || !loaded.postman.is_empty();
                 if !found && loaded.failures.is_empty() {
-                    self.error = Some(t!("openapi.none_found").into_owned());
+                    self.error = Some(match self.state.format {
+                        ImportFormat::OpenApi => t!("openapi.none_found").into_owned(),
+                        ImportFormat::Postman => t!("import.postman.none_found").into_owned(),
+                    });
                 }
                 self.checkout = checkout;
+                let detected = loaded.format();
                 self.state.set_loaded(loaded);
+                self.detected = detected.is_some();
                 self.name_pending = found;
                 if found {
+                    let source = if self.state.format == ImportFormat::Postman {
+                        self.state.postman_source()
+                    } else {
+                        source
+                    };
                     // An earlier import of the same source turns the Preview into an update.
                     let collections = self
                         .view
@@ -245,7 +261,7 @@ impl ImportWizard {
                 }
             }
             Err(error) => {
-                log::warn!("OpenAPI import: could not read the spec: {error}");
+                log::warn!("import: could not read the source: {error}");
                 self.error = Some(t!("openapi.read_failed", error = error).into_owned());
             }
         }
@@ -327,6 +343,15 @@ impl ImportWizard {
         }
     }
 
+    /// Whether the import has no requests to write, only environments.
+    fn environments_only(&self) -> bool {
+        self.state.total_count() == 0
+            && self
+                .state
+                .plan()
+                .is_some_and(|plan| !plan.environments.is_empty())
+    }
+
     /// Whether the primary button does something now.
     fn can_advance(&self, cx: &App) -> bool {
         if self.loading {
@@ -334,22 +359,28 @@ impl ImportWizard {
         }
         match self.state.step {
             Step::Source => match self.state.source {
-                SourceKind::File => !self.state.specs().is_empty(),
+                SourceKind::File => self.state.has_content(),
                 SourceKind::Url => {
-                    !self.state.specs().is_empty() || !self.url.read(cx).value().trim().is_empty()
+                    self.state.has_content() || !self.url.read(cx).value().trim().is_empty()
                 }
                 SourceKind::Paste => {
-                    !self.state.specs().is_empty() || !self.paste.read(cx).value().trim().is_empty()
+                    self.state.has_content() || !self.paste.read(cx).value().trim().is_empty()
                 }
-                SourceKind::Folder => !self.state.specs().is_empty(),
+                SourceKind::Folder => self.state.has_content(),
                 SourceKind::Git => {
-                    !self.state.specs().is_empty()
-                        || !self.repository.read(cx).value().trim().is_empty()
+                    self.state.has_content() || !self.repository.read(cx).value().trim().is_empty()
                 }
             },
-            Step::Options => self.state.enabled_count() > 0 && self.resolved(cx).is_some(),
+            Step::Options => {
+                let something = match self.state.format {
+                    ImportFormat::OpenApi => self.state.enabled_count() > 0,
+                    ImportFormat::Postman => (0..self.state.postman_files().len())
+                        .any(|index| self.state.is_postman_enabled(index)),
+                };
+                something && self.resolved(cx).is_some()
+            }
             Step::Preview if self.state.is_update() => self.state.selected_change_count() > 0,
-            Step::Preview => self.state.selected_count() > 0,
+            Step::Preview => self.state.selected_count() > 0 || self.environments_only(),
             Step::Done => true,
         }
     }
@@ -364,7 +395,11 @@ fn manifest_source(kind: SourceKind, input: &LoadInput) -> ManifestSource {
             .into_owned()
     };
     let (location, branch) = match input {
-        LoadInput::File(path) | LoadInput::Folder(path) => (canonical(path), String::new()),
+        LoadInput::Files(paths) => (
+            paths.first().map(canonical).unwrap_or_default(),
+            String::new(),
+        ),
+        LoadInput::Folder(path) => (canonical(path), String::new()),
         LoadInput::Git { url, branch } => (url.trim().to_string(), branch.trim().to_string()),
         LoadInput::Url(url) => (url.trim().to_string(), String::new()),
         LoadInput::Text(_) => (String::new(), String::new()),
@@ -383,21 +418,40 @@ fn today() -> String {
 
 /// What to load.
 enum LoadInput {
-    File(PathBuf),
+    Files(Vec<PathBuf>),
     Folder(PathBuf),
     Git { url: String, branch: String },
     Url(String),
     Text(String),
 }
 
-/// Opens the wizard on its first step with `source` selected.
+/// Opens the wizard on its first step with `source` selected, for OpenAPI.
 pub(crate) fn open_openapi_wizard(
     view: WeakEntity<AppView>,
     source: SourceKind,
     window: &mut Window,
     cx: &mut App,
 ) {
-    open_wizard(view, source, window, cx);
+    open_wizard(view, ImportFormat::OpenApi, source, window, cx);
+}
+
+/// Opens the wizard on its first step for Postman.
+pub(crate) fn open_postman_wizard(view: WeakEntity<AppView>, window: &mut Window, cx: &mut App) {
+    open_wizard(view, ImportFormat::Postman, SourceKind::File, window, cx);
+}
+
+/// Opens the wizard on files dropped on the window (design 4e): they are read, the format is
+/// detected and, when something was found, the wizard goes on to the Options step.
+pub(crate) fn open_wizard_with_files(
+    view: WeakEntity<AppView>,
+    paths: Vec<PathBuf>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let wizard = open_wizard(view, ImportFormat::OpenApi, SourceKind::File, window, cx);
+    wizard.update(cx, |wizard, cx| {
+        wizard.load(SourceKind::File, LoadInput::Files(paths), true, cx);
+    });
 }
 
 /// Opens the wizard on the source an earlier import recorded, and reads it right away: once
@@ -412,12 +466,12 @@ pub(crate) fn open_openapi_update(
     let Some(kind) = source_kind_of(&source.kind) else {
         return;
     };
-    let wizard = open_wizard(view, kind, window, cx);
+    let wizard = open_wizard(view, ImportFormat::OpenApi, kind, window, cx);
     let location = source.location.clone();
     let branch = source.branch.clone();
     wizard.update(cx, |wizard, cx| {
         let input = match kind {
-            SourceKind::File => LoadInput::File(PathBuf::from(&location)),
+            SourceKind::File => LoadInput::Files(vec![PathBuf::from(&location)]),
             SourceKind::Folder => {
                 wizard.folder = Some(PathBuf::from(&location));
                 LoadInput::Folder(PathBuf::from(&location))
@@ -446,9 +500,10 @@ pub(crate) fn open_openapi_update(
     });
 }
 
-/// Builds the wizard on `source` and opens it.
+/// Builds the wizard on `format` and `source` and opens it.
 fn open_wizard(
     view: WeakEntity<AppView>,
+    format: ImportFormat,
     source: SourceKind,
     window: &mut Window,
     cx: &mut App,
@@ -463,7 +518,8 @@ fn open_wizard(
     let branch =
         cx.new(|cx| InputState::new(window, cx).placeholder(t!("openapi.git.branch_placeholder")));
     let wizard = cx.new(|cx| ImportWizard {
-        state: Wizard::new(source),
+        state: Wizard::new(format, source),
+        detected: false,
         view: view.clone(),
         client: None,
         name: name.clone(),
@@ -548,7 +604,7 @@ fn primary_action(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut A
     match step {
         Step::Source => {
             wizard.update(cx, |wizard, cx| {
-                if !wizard.state.specs().is_empty() {
+                if wizard.state.has_content() {
                     wizard.state.step = Step::Options;
                     cx.notify();
                     return;
@@ -589,8 +645,13 @@ fn primary_action(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut A
 /// Imports the selected requests into the destination and moves to the Done step. A failure
 /// stays on the Preview step with the reason.
 fn run_import(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut App) -> bool {
-    let (view, plan, excluded, origin, update, destination) = {
+    let (view, plan, excluded, origin, update, destination, issues) = {
         let wizard = wizard.read(cx);
+        let issues = if wizard.state.format == ImportFormat::Postman {
+            Some(wizard.state.selected_issues())
+        } else {
+            None
+        };
         let Some(plan) = wizard.state.plan().cloned() else {
             return false;
         };
@@ -627,6 +688,7 @@ fn run_import(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut App) 
             origin,
             update,
             destination,
+            issues,
         )
     };
     let Some(app) = view.upgrade() else {
@@ -651,6 +713,8 @@ fn run_import(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut App) 
                 warnings: report.warnings,
                 workspace: None,
                 created: false,
+                report: None,
+                review: 0,
             })
         }
         None => app
@@ -674,6 +738,8 @@ fn run_import(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut App) 
                 updated: None,
                 workspace: None,
                 created: false,
+                report: None,
+                review: 0,
             }),
     });
     wizard.update(cx, |wizard, cx| {
@@ -685,6 +751,27 @@ fn run_import(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut App) 
                         .map(|name| name.to_string_lossy().into_owned());
                     done.created = matches!(destination.target, Target::Create(_));
                 }
+                if let Some(issues) = &issues {
+                    let root = destination.target.path().map(PathBuf::from).or_else(|| {
+                        view.upgrade().and_then(|view| {
+                            view.read(cx)
+                                .state
+                                .workspace
+                                .as_ref()
+                                .map(|workspace| workspace.root().to_path_buf())
+                        })
+                    });
+                    let text = report_text(&done.name, issues, &done.warnings);
+                    done.review = issues
+                        .iter()
+                        .filter(|(_, issues)| {
+                            issues.iter().any(|issue| issue.level() != IssueLevel::Note)
+                        })
+                        .count();
+                    if let Some(root) = root.filter(|_| !text.is_empty()) {
+                        done.report = write_report(&root, &text);
+                    }
+                }
                 wizard.done = Some(done);
                 wizard.state.step = Step::Done;
             }
@@ -693,6 +780,20 @@ fn run_import(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut App) 
         cx.notify();
     });
     false
+}
+
+/// Writes the import report to `.postino/import-report.md`. A failure only loses the report.
+fn write_report(root: &std::path::Path, text: &str) -> Option<PathBuf> {
+    let folder = root.join(".postino");
+    let path = folder.join("import-report.md");
+    let written = std::fs::create_dir_all(&folder).and_then(|()| std::fs::write(&path, text));
+    match written {
+        Ok(()) => Some(path),
+        Err(error) => {
+            log::warn!("could not write the import report: {error}");
+            None
+        }
+    }
 }
 
 /// The workspace id of the collection folder an import report's first request is in.
@@ -919,7 +1020,7 @@ fn render_header(step: Step, palette: &Palette) -> AnyElement {
                 .pt(px(14.0))
                 .pb(px(10.0))
                 .child(
-                    Icon::new(IconName::FileCode)
+                    Icon::new(IconName::Download)
                         .size(px(16.0))
                         .text_color(palette.accent_text),
                 )
@@ -928,7 +1029,7 @@ fn render_header(step: Step, palette: &Palette) -> AnyElement {
                         .flex_1()
                         .text_size(px(15.0))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(t!("openapi.title")),
+                        .child(t!("import.title")),
                 )
                 .child(
                     IconButton::new("openapi-close", IconName::X)
@@ -947,13 +1048,19 @@ fn render_footer(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> 
     let step = state.state.step;
     let selected = state.state.selected_count();
     let note: SharedString = match step {
-        Step::Source => t!("openapi.supported").into(),
+        Step::Source => match state.state.format {
+            ImportFormat::OpenApi => t!("openapi.supported").into(),
+            ImportFormat::Postman => t!("import.postman.supported").into(),
+        },
         Step::Options if state.state.specs().len() > 1 => t!(
             &telaio_app::language::plural_key("openapi.from_versions", state.state.enabled_count()),
             operations = plural("openapi.operations", state.state.operation_count()),
             count = format_integer(state.state.enabled_count() as u64)
         )
         .into(),
+        Step::Options if state.state.format == ImportFormat::Postman => {
+            plural("import.postman.requests", state.state.operation_count()).into()
+        }
         Step::Options => plural("openapi.operations", state.state.operation_count()).into(),
         Step::Preview if state.state.is_update() => {
             plural("openapi.selected", state.state.selected_change_count()).into()
@@ -976,10 +1083,11 @@ fn render_footer(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> 
                 state.resolved(cx).map(|destination| destination.target),
                 Some(Target::Create(_))
             );
-            if create {
-                plural("import.create_and_import", selected).into()
-            } else {
-                plural("openapi.import", selected).into()
+            match (create, state.environments_only()) {
+                (true, true) => t!("import.create_and_import_environments").into(),
+                (false, true) => t!("import.environments_only").into(),
+                (true, false) => plural("import.create_and_import", selected).into(),
+                (false, false) => plural("openapi.import", selected).into(),
             }
         }
         Step::Done => match state.done.as_ref().and_then(|done| done.workspace.as_ref()) {
@@ -1035,33 +1143,20 @@ fn render_footer(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> 
 fn render_source(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> AnyElement {
     let state = wizard.read(cx);
     let source = state.state.source;
-    let tabs = [
-        (
-            SourceKind::File,
-            t!("openapi.source.file"),
-            IconName::FileUp,
-        ),
-        (SourceKind::Url, t!("openapi.source.url"), IconName::Link),
-        (
-            SourceKind::Paste,
-            t!("openapi.source.paste"),
-            IconName::Clipboard,
-        ),
-        (
-            SourceKind::Folder,
-            t!("openapi.source.folder"),
-            IconName::Folder,
-        ),
-        (
-            SourceKind::Git,
-            t!("openapi.source.git"),
-            IconName::GitBranch,
-        ),
-    ];
+    let tabs = sources_of(state.state.format).iter().map(|kind| {
+        let (label, icon) = match kind {
+            SourceKind::File => (t!("openapi.source.file"), IconName::FileUp),
+            SourceKind::Url => (t!("openapi.source.url"), IconName::Link),
+            SourceKind::Paste => (t!("openapi.source.paste"), IconName::Clipboard),
+            SourceKind::Folder => (t!("openapi.source.folder"), IconName::Folder),
+            SourceKind::Git => (t!("openapi.source.git"), IconName::GitBranch),
+        };
+        (*kind, label, icon)
+    });
     let tab_row = h_flex()
         .gap(px(6.0))
         .flex_wrap()
-        .children(tabs.into_iter().map(|(kind, label, icon)| {
+        .children(tabs.map(|(kind, label, icon)| {
             let selected = kind == source;
             let weak = wizard.downgrade();
             let (rest, hover, pressed) = if selected {
@@ -1137,7 +1232,13 @@ fn render_source(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> 
                             .disabled(state.loading),
                     ),
             )
-            .child(hint(t!("openapi.paste.hint"), palette))
+            .child(hint(
+                match state.state.format {
+                    ImportFormat::OpenApi => t!("openapi.paste.hint"),
+                    ImportFormat::Postman => t!("import.postman.paste_hint"),
+                },
+                palette,
+            ))
             .into_any_element(),
         SourceKind::Folder => render_folder_input(wizard, palette, cx),
         SourceKind::Git => render_git_input(wizard, palette, cx),
@@ -1145,6 +1246,7 @@ fn render_source(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> 
 
     v_flex()
         .gap(px(16.0))
+        .child(render_format_row(wizard, palette, cx))
         .child(tab_row)
         .child(input)
         .children(
@@ -1154,7 +1256,55 @@ fn render_source(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> 
                 .map(|error| InlineMessage::new(InlineMessageKind::Danger, error)),
         )
         .when(!state.state.is_empty(), |column| {
-            column.child(render_found(&state.state, palette, cx))
+            column.child(render_found(wizard, palette, cx))
+        })
+        .into_any_element()
+}
+
+/// The format chips of the first step, and whether the format was detected.
+fn render_format_row(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> AnyElement {
+    let state = wizard.read(cx);
+    let chip = |id: &'static str, format: ImportFormat, label: SharedString| {
+        let weak = wizard.downgrade();
+        choice_pill(id, label, state.state.format == format, palette).on_click(move |_, _, cx| {
+            let _ = weak.update(cx, |wizard, cx| {
+                if wizard.state.format != format {
+                    wizard.state.set_format(format);
+                    wizard.detected = false;
+                    wizard.checkout = None;
+                    wizard.error = None;
+                    cx.notify();
+                }
+            });
+        })
+    };
+    h_flex()
+        .gap(px(10.0))
+        .child(field_label(t!("import.format"), palette))
+        .child(
+            h_flex()
+                .gap(px(6.0))
+                .child(chip(
+                    "import-format-openapi",
+                    ImportFormat::OpenApi,
+                    "OpenAPI / Swagger".into(),
+                ))
+                .child(chip(
+                    "import-format-postman",
+                    ImportFormat::Postman,
+                    "Postman".into(),
+                )),
+        )
+        .child(div().flex_1())
+        .when(state.detected, |row| {
+            row.child(
+                h_flex()
+                    .gap(px(6.0))
+                    .text_size(px(12.0))
+                    .text_color(palette.success)
+                    .child(Icon::new(IconName::WandSparkles).size(px(13.0)))
+                    .child(t!("import.detected")),
+            )
         })
         .into_any_element()
 }
@@ -1176,6 +1326,7 @@ fn field_label(text: impl Into<SharedString>, palette: &Palette) -> Div {
 /// The dashed zone that takes a dropped file, or opens the file picker on a click.
 fn render_drop_zone(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> AnyElement {
     let loading = wizard.read(cx).loading;
+    let format = wizard.read(cx).state.format;
     let pick = wizard.downgrade();
     let drop = wizard.downgrade();
     let (hover, pressed, accent_subtle) = (palette.hover, palette.pressed, palette.accent_subtle);
@@ -1199,9 +1350,10 @@ fn render_drop_zone(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) 
                     style.bg(accent_subtle).border_color(accent)
                 })
                 .on_drop(move |paths: &ExternalPaths, _, cx| {
-                    if let Some(path) = paths.paths().first().cloned() {
+                    let paths = paths.paths().to_vec();
+                    if !paths.is_empty() {
                         let _ = drop.update(cx, |wizard, cx| {
-                            wizard.load(SourceKind::File, LoadInput::File(path), false, cx);
+                            wizard.load(SourceKind::File, LoadInput::Files(paths), false, cx);
                         });
                     }
                 })
@@ -1213,13 +1365,25 @@ fn render_drop_zone(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) 
                 zone.child(t!("openapi.file.reading"))
             } else {
                 zone.child(
-                    h_flex().gap(px(4.0)).child(t!("openapi.file.drop")).child(
-                        div()
-                            .text_color(palette.accent_text)
-                            .child(t!("openapi.file.browse")),
-                    ),
+                    h_flex()
+                        .gap(px(4.0))
+                        .child(match format {
+                            ImportFormat::OpenApi => t!("openapi.file.drop"),
+                            ImportFormat::Postman => t!("import.postman.drop"),
+                        })
+                        .child(
+                            div()
+                                .text_color(palette.accent_text)
+                                .child(t!("openapi.file.browse")),
+                        ),
                 )
-                .child(hint(t!("openapi.file.types"), palette))
+                .child(hint(
+                    match format {
+                        ImportFormat::OpenApi => t!("openapi.file.types"),
+                        ImportFormat::Postman => t!("import.postman.types"),
+                    },
+                    palette,
+                ))
             }
         })
         .into_any_element()
@@ -1230,18 +1394,18 @@ fn pick_file(wizard: WeakEntity<ImportWizard>, cx: &mut App) {
     let receiver = cx.prompt_for_paths(PathPromptOptions {
         files: true,
         directories: false,
-        multiple: false,
+        multiple: true,
         prompt: None,
     });
     cx.spawn(async move |cx| {
-        let Ok(Ok(Some(mut paths))) = receiver.await else {
+        let Ok(Ok(Some(paths))) = receiver.await else {
             return;
         };
-        let Some(path) = paths.pop() else {
+        if paths.is_empty() {
             return;
-        };
+        }
         let _ = wizard.update(cx, |wizard, cx| {
-            wizard.load(SourceKind::File, LoadInput::File(path), false, cx);
+            wizard.load(SourceKind::File, LoadInput::Files(paths), false, cx);
         });
     })
     .detach();
@@ -1282,7 +1446,8 @@ fn render_url_input(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) 
 
 /// What the source gave: its catalog files, then one card per spec read and per file that
 /// could not be read.
-fn render_found(state: &Wizard, palette: &Palette, cx: &App) -> AnyElement {
+fn render_found(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> AnyElement {
+    let state = &wizard.read(cx).state;
     let mono = cx.theme().mono_font_family.clone();
     let card = || {
         h_flex()
@@ -1409,8 +1574,115 @@ fn render_found(state: &Wizard, palette: &Palette, cx: &App) -> AnyElement {
                 .child(SectionLabel::new(t!("openapi.found"))),
         )
         .children(specs)
+        .children(render_postman_found(wizard, palette, cx))
         .children(failures)
         .into_any_element()
+}
+
+/// The Postman exports the source gave: a collection is imported, an environment has a checkbox.
+fn render_postman_found(
+    wizard: &Entity<ImportWizard>,
+    palette: &Palette,
+    cx: &App,
+) -> Vec<AnyElement> {
+    let state = &wizard.read(cx).state;
+    let mono = cx.theme().mono_font_family.clone();
+    let files = state.postman_files();
+    let has_environments = files
+        .iter()
+        .any(|file| file.format != PostmanFormat::Collection);
+    let mut rows: Vec<AnyElement> = files
+        .iter()
+        .enumerate()
+        .map(|(index, file)| {
+            let meta = postman_meta(file);
+            let weak = wizard.downgrade();
+            let checked = state.is_postman_enabled(index);
+            let row = h_flex()
+                .id(("import-postman-file", index))
+                .gap(px(10.0))
+                .px(px(12.0))
+                .py(px(10.0))
+                .rounded(px(RADIUS_MD))
+                .border_1()
+                .border_color(palette.border)
+                .cursor_pointer()
+                .hover(|style| style.bg(palette.hover))
+                .active(|style| style.bg(palette.pressed))
+                .on_click(move |_, _, cx| {
+                    let _ = weak.update(cx, |wizard, cx| {
+                        wizard.state.toggle_postman(index);
+                        cx.notify();
+                    });
+                });
+            let box_weak = wizard.downgrade();
+            row.child(
+                TriCheckbox::new(
+                    ("import-postman-check", index),
+                    if checked {
+                        CheckState::Checked
+                    } else {
+                        CheckState::Unchecked
+                    },
+                )
+                .on_click(move |_, _, cx| {
+                    let _ = box_weak.update(cx, |wizard, cx| {
+                        wizard.state.toggle_postman(index);
+                        cx.notify();
+                    });
+                }),
+            )
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(2.0))
+                    .child(div().truncate().child(file.name.clone()))
+                    .when(!file.source.is_empty(), |column| {
+                        column.child(
+                            div()
+                                .truncate()
+                                .font_family(mono.clone())
+                                .text_size(px(11.0))
+                                .text_color(palette.fg_subtle)
+                                .child(file.source.clone()),
+                        )
+                    }),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(px(12.0))
+                    .text_color(palette.fg_muted)
+                    .child(meta),
+            )
+            .into_any_element()
+        })
+        .collect();
+    if has_environments {
+        rows.push(hint(t!("import.postman.env_note"), palette).into_any_element());
+    }
+    rows
+}
+
+/// The right side of a Postman export's row.
+fn postman_meta(file: &crate::state::openapi_import::PostmanFile) -> String {
+    let variables = plural("import.postman.variables", file.items);
+    match file.format {
+        PostmanFormat::Collection => t!(
+            "import.postman.collection_meta",
+            version = file.version.as_str(),
+            requests = plural("import.postman.requests", file.items),
+            folders = plural("import.postman.folders", file.others)
+        )
+        .into_owned(),
+        PostmanFormat::Environment => {
+            t!("import.postman.environment_meta", variables = variables).into_owned()
+        }
+        PostmanFormat::Globals => {
+            t!("import.postman.globals_meta", variables = variables).into_owned()
+        }
+    }
 }
 
 /// The Folder source: the chosen folder and the button that opens the folder picker.
@@ -1466,7 +1738,13 @@ fn render_folder_input(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &Ap
                     .on_click(move |_, _, cx| pick_folder(pick.clone(), cx)),
                 ),
         )
-        .child(hint(t!("openapi.folder.hint"), palette))
+        .child(hint(
+            match state.state.format {
+                ImportFormat::OpenApi => t!("openapi.folder.hint"),
+                ImportFormat::Postman => t!("import.postman.folder_hint"),
+            },
+            palette,
+        ))
         .into_any_element()
 }
 
@@ -1558,6 +1836,9 @@ fn render_git_input(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) 
 /// Step 2: the collection name and folders on the left, what to generate on the right.
 fn render_options(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> AnyElement {
     let state = wizard.read(cx);
+    if state.state.format == ImportFormat::Postman {
+        return render_postman_options(wizard, palette, cx);
+    }
     let options = state.state.options;
     let mono = cx.theme().mono_font_family.clone();
 
@@ -1774,7 +2055,173 @@ fn render_options(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) ->
                 }),
         );
 
-    let collection = state.collection_name(cx);
+    let collection = if state.environments_only()
+        || !state.state.has_collection() && state.state.format == ImportFormat::Postman
+    {
+        String::new()
+    } else {
+        state.collection_name(cx)
+    };
+    v_flex()
+        .gap(px(18.0))
+        .children(
+            state
+                .destination
+                .as_ref()
+                .map(|block| render_destination(block, &collection, palette, cx)),
+        )
+        .child(
+            h_flex()
+                .items_start()
+                .gap(px(20.0))
+                .child(div().flex_1().min_w_0().child(left))
+                .child(div().flex_1().min_w_0().child(right)),
+        )
+        .into_any_element()
+}
+
+/// Step 2 of a Postman import (design 4b): the destination, the name and environments on the left,
+/// what to convert on the right.
+fn render_postman_options(
+    wizard: &Entity<ImportWizard>,
+    palette: &Palette,
+    cx: &App,
+) -> AnyElement {
+    let state = wizard.read(cx);
+    let options = state.state.postman_options;
+    let environments: Vec<(usize, String, String)> = state
+        .state
+        .postman_files()
+        .iter()
+        .enumerate()
+        .filter(|(_, file)| file.format != PostmanFormat::Collection)
+        .map(|(index, file)| (index, file.name.clone(), postman_meta(file)))
+        .collect();
+    let left = v_flex()
+        .gap(px(16.0))
+        .when(state.state.has_collection(), |column| {
+            column.child(
+                v_flex()
+                    .gap(px(6.0))
+                    .child(field_label(t!("openapi.options.name"), palette))
+                    .child(text_field(&state.name, cx)),
+            )
+        })
+        .when(!environments.is_empty(), |column| {
+            column.child(
+                v_flex()
+                    .gap(px(4.0))
+                    .child(
+                        div()
+                            .pb(px(4.0))
+                            .child(SectionLabel::new(t!("import.postman.environments"))),
+                    )
+                    .children(environments.into_iter().map(|(index, name, meta)| {
+                        let weak = wizard.downgrade();
+                        h_flex()
+                            .gap(px(10.0))
+                            .py(px(5.0))
+                            .child(
+                                div().min_w_0().child(
+                                    telaio_ui::components::labelled_checkbox(
+                                        SharedString::from(format!("import-postman-env-{index}")),
+                                        state.state.is_postman_enabled(index),
+                                        name,
+                                        palette,
+                                    )
+                                    .on_change(
+                                        move |_, _, cx| {
+                                            let _ = weak.update(cx, |wizard, cx| {
+                                                wizard.state.toggle_postman(index);
+                                                wizard.rebuild(cx);
+                                            });
+                                        },
+                                    ),
+                                ),
+                            )
+                            .child(div().flex_1())
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_size(px(12.0))
+                                    .text_color(palette.fg_subtle)
+                                    .child(meta),
+                            )
+                    })),
+            )
+        });
+    type Toggle = fn(&mut postino_format::postman::PostmanOptions) -> &mut bool;
+    let convert: [(&str, SharedString, SharedString, bool, Toggle); 6] = [
+        (
+            "folders",
+            t!("import.postman.opt_folders").into(),
+            t!("import.postman.opt_folders_sub").into(),
+            options.folders,
+            |o| &mut o.folders,
+        ),
+        (
+            "variables",
+            t!("import.postman.opt_variables").into(),
+            t!("import.postman.opt_variables_sub").into(),
+            options.variables,
+            |o| &mut o.variables,
+        ),
+        (
+            "secrets",
+            t!("import.postman.opt_secrets").into(),
+            t!("import.postman.opt_secrets_sub").into(),
+            options.secrets,
+            |o| &mut o.secrets,
+        ),
+        (
+            "auth",
+            t!("import.postman.opt_auth").into(),
+            t!("import.postman.opt_auth_sub").into(),
+            options.auth,
+            |o| &mut o.auth,
+        ),
+        (
+            "scripts",
+            t!("import.postman.opt_scripts").into(),
+            t!("import.postman.opt_scripts_sub").into(),
+            options.scripts,
+            |o| &mut o.scripts,
+        ),
+        (
+            "docs",
+            t!("import.postman.opt_docs").into(),
+            t!("import.postman.opt_docs_sub").into(),
+            options.docs,
+            |o| &mut o.docs,
+        ),
+    ];
+    let right = v_flex()
+        .gap(px(4.0))
+        .child(
+            div()
+                .pb(px(4.0))
+                .child(SectionLabel::new(t!("import.postman.convert"))),
+        )
+        .children(convert.into_iter().map(|(id, label, sub, checked, field)| {
+            let toggle = {
+                let weak = wizard.downgrade();
+                move |cx: &mut App| {
+                    let _ = weak.update(cx, |wizard, cx| {
+                        let flag = field(&mut wizard.state.postman_options);
+                        *flag = !*flag;
+                        cx.notify();
+                    });
+                }
+            };
+            described_checkbox(id, checked, label, sub, toggle, palette)
+        }));
+    let collection = if state.environments_only()
+        || !state.state.has_collection() && state.state.format == ImportFormat::Postman
+    {
+        String::new()
+    } else {
+        state.collection_name(cx)
+    };
     v_flex()
         .gap(px(18.0))
         .children(
@@ -2125,6 +2572,7 @@ fn render_change(
 /// The new collection's tree of requests, with the counts and what else is written.
 fn render_tree_preview(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> AnyElement {
     let state = wizard.read(cx);
+    let environments_only = state.environments_only();
     let total = state.state.total_count();
     let selected = state.state.selected_count();
     let summary = format!(
@@ -2217,47 +2665,95 @@ fn render_tree_preview(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &Ap
                 .clone()
                 .map(|error| InlineMessage::new(InlineMessageKind::Danger, error)),
         )
-        .child(
-            h_flex()
-                .gap(px(10.0))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_color(palette.fg_muted)
-                        .child(summary),
+        .when(!environments_only, |column| {
+            column.child(
+                h_flex()
+                    .gap(px(10.0))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(palette.fg_muted)
+                            .child(summary),
+                    )
+                    .child(link(
+                        "openapi-select-all",
+                        t!("openapi.preview.select_all").into(),
+                        true,
+                    ))
+                    .child(link(
+                        "openapi-select-none",
+                        t!("openapi.preview.select_none").into(),
+                        false,
+                    )),
+            )
+        })
+        .when(
+            state.state.format == ImportFormat::Postman && !environments_only,
+            |column| {
+                let (complete, warning, unsupported) = state.state.compat_counts();
+                let chip = |icon: IconName, bg: Hsla, fg: Hsla, text: String| {
+                    h_flex()
+                        .flex_none()
+                        .gap(px(6.0))
+                        .h(px(24.0))
+                        .px(px(10.0))
+                        .rounded(px(12.0))
+                        .bg(bg)
+                        .text_color(fg)
+                        .text_size(px(12.0))
+                        .child(Icon::new(icon).size(px(12.0)))
+                        .child(text)
+                };
+                let count = |value: usize| format_integer(value as u64);
+                column.child(
+                    h_flex()
+                        .flex_none()
+                        .gap(px(8.0))
+                        .child(chip(
+                            IconName::CircleCheck,
+                            palette.success_subtle,
+                            palette.success,
+                            t!("import.compat.ok", count = count(complete)).into_owned(),
+                        ))
+                        .child(chip(
+                            IconName::TriangleAlert,
+                            palette.warning_subtle,
+                            palette.warning,
+                            t!("import.compat.warning", count = count(warning)).into_owned(),
+                        ))
+                        .child(chip(
+                            IconName::CircleX,
+                            palette.danger_subtle,
+                            palette.danger,
+                            t!("import.compat.unsupported", count = count(unsupported))
+                                .into_owned(),
+                        )),
                 )
-                .child(link(
-                    "openapi-select-all",
-                    t!("openapi.preview.select_all").into(),
-                    true,
-                ))
-                .child(link(
-                    "openapi-select-none",
-                    t!("openapi.preview.select_none").into(),
-                    false,
-                )),
+            },
         )
-        .child(
-            div()
-                .flex_1()
-                .min_h_0()
-                .relative()
-                .py(px(6.0))
-                .px(px(4.0))
-                .rounded(px(RADIUS_MD))
-                .border_1()
-                .border_color(palette.border)
-                .bg(palette.bg)
-                .child(list)
-                .child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .child(Scrollbar::vertical(&rows_scroll)),
-                ),
-        )
+        .when(!environments_only, |column| {
+            column.child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .relative()
+                    .py(px(6.0))
+                    .px(px(4.0))
+                    .rounded(px(RADIUS_MD))
+                    .border_1()
+                    .border_color(palette.border)
+                    .bg(palette.bg)
+                    .child(list)
+                    .child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .child(Scrollbar::vertical(&rows_scroll)),
+                    ),
+            )
+        })
         .child(
             h_flex()
                 .flex_none()
@@ -2298,6 +2794,10 @@ fn render_destination_summary(
     let state = wizard.read(cx);
     let destination = state.resolved(cx)?;
     let collection = state.collection_name(cx);
+    // Environments on their own add no folder, and go where the block said.
+    if state.environments_only() && !matches!(destination.target, Target::Create(_)) {
+        return None;
+    }
     let (icon, text) = match &destination.target {
         Target::Create(path) => {
             let home = dirs::home_dir();
@@ -2430,7 +2930,12 @@ fn render_row(
                 })
                 .into_any_element()
         }
-        RowKind::Request { method, checked } => {
+        RowKind::Request {
+            method,
+            checked,
+            path,
+            issue,
+        } => {
             let check_id = id.clone();
             let check_weak = wizard.clone();
             let state = if *checked {
@@ -2453,6 +2958,33 @@ fn render_row(
                         .child(checkbox)
                         .child(MethodBadge::label(method.clone())),
                 )
+                .when(!path.is_empty() || issue.is_some(), |row| {
+                    let note = issue.as_ref().map(|issue| {
+                        let color = match issue.level() {
+                            IssueLevel::Note => palette.success,
+                            IssueLevel::Warning => palette.warning,
+                            IssueLevel::Unsupported => palette.danger,
+                        };
+                        div()
+                            .flex_none()
+                            .text_size(px(11.5))
+                            .text_color(color)
+                            .child(issue_text(issue))
+                    });
+                    row.suffix(
+                        h_flex().gap(px(10.0)).pr(px(8.0)).children(note).child(
+                            div()
+                                .w(px(ROW_PATH_WIDTH))
+                                .flex_none()
+                                .truncate()
+                                .text_right()
+                                .font_family(mono.clone())
+                                .text_size(px(11.0))
+                                .text_color(palette.fg_subtle)
+                                .child(path.clone()),
+                        ),
+                    )
+                })
                 .on_click(move |_, _, cx| {
                     let _ = weak.update(cx, |wizard, cx| {
                         wizard.state.toggle_request(&id);
@@ -2501,6 +3033,7 @@ fn render_done(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> An
                         removed = format_integer(removed as u64)
                     )
                     .into_owned(),
+                    None if done.count == 0 => t!("import.done.environments").into_owned(),
                     None if done.created => plural("import.done.created", done.count),
                     None => t!(
                         &telaio_app::language::plural_key("openapi.done.title", done.count),
@@ -2520,31 +3053,59 @@ fn render_done(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> An
                         collection = done.name.as_str(),
                         workspace = workspace.as_str()
                     ),
+                    None if done.count == 0 => t!("import.done.environments_note"),
                     None => t!("openapi.done.note"),
                 }),
         )
-        .when(!done.warnings.is_empty(), |column| {
+        .when_some(done.report.clone(), |column, report| {
             column.child(
-                v_flex()
-                    .w_full()
-                    .mt(px(8.0))
-                    .gap(px(4.0))
-                    .px(px(12.0))
+                h_flex()
+                    .mt(px(4.0))
+                    .gap(px(10.0))
+                    .px(px(14.0))
                     .py(px(10.0))
                     .rounded(px(RADIUS_MD))
                     .bg(palette.warning_subtle)
-                    .text_size(px(12.0))
+                    .text_color(palette.warning)
+                    .child(Icon::new(IconName::TriangleAlert).size(px(15.0)))
+                    .child(plural("import.report.review", done.review))
                     .child(
                         div()
-                            .text_color(palette.warning)
-                            .child(t!("openapi.done.warnings")),
-                    )
-                    .children(done.warnings.iter().map(|warning| {
-                        div()
-                            .text_color(palette.fg_muted)
-                            .child(format!("- {warning}"))
-                    })),
+                            .id("import-view-report")
+                            .cursor_pointer()
+                            .text_color(palette.accent_text)
+                            .hover(|style| style.underline())
+                            .child(t!("import.report.view"))
+                            .on_click(move |_, _, cx| cx.open_with_system(&report)),
+                    ),
             )
         })
+        // The report lists them, with the requests they belong to.
+        .when(
+            !done.warnings.is_empty() && done.report.is_none(),
+            |column| {
+                column.child(
+                    v_flex()
+                        .w_full()
+                        .mt(px(8.0))
+                        .gap(px(4.0))
+                        .px(px(12.0))
+                        .py(px(10.0))
+                        .rounded(px(RADIUS_MD))
+                        .bg(palette.warning_subtle)
+                        .text_size(px(12.0))
+                        .child(
+                            div()
+                                .text_color(palette.warning)
+                                .child(t!("openapi.done.warnings")),
+                        )
+                        .children(done.warnings.iter().map(|warning| {
+                            div()
+                                .text_color(palette.fg_muted)
+                                .child(format!("- {warning}"))
+                        })),
+                )
+            },
+        )
         .into_any_element()
 }

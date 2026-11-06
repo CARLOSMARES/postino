@@ -131,7 +131,8 @@ any other icon silently renders empty. On Linux, the window is opened with `Wind
   (`samples/workspace`, see "Sample suite"). Two environment variables are read at startup and do nothing when unset:
   `POSTINO_ENV=<name>` selects an environment (a name under `environments/`) before sending
   anything, and `POSTINO_AUTOSEND=<request id>` opens that request (a workspace-relative id, for
-  example `auth/login.postino`) and sends it right away.
+  example `auth/login.postino`) and sends it right away. `POSTINO_IMPORT=<paths>` (separated like
+  `PATH`) opens the import wizard on those files, as a drop on the window does.
 
 ## Sample suite
 

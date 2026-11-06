@@ -245,17 +245,20 @@ fn write_plan(
     origin: &ImportOrigin,
     created: &mut Vec<String>,
 ) -> Result<(), WorkspaceError> {
-    create_dir(target)?;
-    let mut files = BTreeMap::new();
-    write_plan_folder(target, target, root, &plan.root, keep, &mut files, created)?;
-    let manifest = Manifest::new(
-        &origin.date,
-        origin.source.clone(),
-        &origin.options,
-        plan,
-        &files,
-    );
-    atomic_write(&target.join(MANIFEST_FILE), &manifest.to_toml())?;
+    // A Postman environment on its own has no collection to write.
+    if !plan.root.keys().is_empty() {
+        create_dir(target)?;
+        let mut files = BTreeMap::new();
+        write_plan_folder(target, target, root, &plan.root, keep, &mut files, created)?;
+        let manifest = Manifest::new(
+            &origin.date,
+            origin.source.clone(),
+            &origin.options,
+            plan,
+            &files,
+        );
+        atomic_write(&target.join(MANIFEST_FILE), &manifest.to_toml())?;
+    }
     for environment in &plan.environments {
         write_environment(
             root,

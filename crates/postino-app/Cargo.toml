@@ -42,6 +42,7 @@ telaio-app = { workspace = true }
 postino-cli = { path = "../postino-cli" }
 # The temporary checkout of a Git repository the OpenAPI import reads specs from.
 tempfile = { workspace = true }
+zip = { workspace = true }
 
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = "3"

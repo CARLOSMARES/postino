@@ -1,26 +1,64 @@
 //! Integration tests for [`postino_workspace::Workspace`]'s Postman import. `tests/fixtures/postman_collection.json` has a nested folder, a duplicate
-//! request name (two "Login" requests in the same folder), a `formdata` body (unsupported, must
-//! warn) and a collection variable. `tests/fixtures/postman_environment.json` has one plain
+//! request name (two "Login" requests in the same folder), a `formdata` body and a collection variable. `tests/fixtures/postman_environment.json` has one plain
 //! value and one secret value.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::fs;
 
-use postino_workspace::Workspace;
+use postino_format::openapi::{ImportOptions, ManifestSource};
+use postino_format::postman::{
+    MANIFEST_KIND, PostmanOptions, build_postman_plan, parse_collection, parse_environment,
+};
+use postino_workspace::{ImportOrigin, ImportReport, Workspace, WorkspaceError};
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 
 const COLLECTION: &str = include_str!("fixtures/postman_collection.json");
 const ENVIRONMENT: &str = include_str!("fixtures/postman_environment.json");
 
+/// The origin of a test import.
+fn origin(location: &str) -> ImportOrigin {
+    ImportOrigin {
+        source: ManifestSource {
+            kind: MANIFEST_KIND.to_string(),
+            location: location.to_string(),
+            branch: String::new(),
+        },
+        date: "2026-11-07".to_string(),
+        options: ImportOptions::default(),
+    }
+}
+
+/// Imports a collection the way the wizard does.
+fn import_collection(
+    workspace: &mut Workspace,
+    text: &str,
+) -> Result<ImportReport, WorkspaceError> {
+    let options = PostmanOptions::default();
+    let collection = parse_collection(text, &options).expect("a collection");
+    let name = collection.collection_name.clone();
+    let built = build_postman_plan(&name, &[collection], &[], &[], &options);
+    workspace.import_openapi(&built.plan, &|_| true, &origin("id"))
+}
+
+/// Imports an environment on its own the way the wizard does.
+fn import_environment(
+    workspace: &mut Workspace,
+    text: &str,
+) -> Result<ImportReport, WorkspaceError> {
+    let options = PostmanOptions::default();
+    let environment = parse_environment(text).expect("an environment");
+    let name = environment.name.clone();
+    let built = build_postman_plan(&name, &[], &[environment], &[], &options);
+    workspace.import_openapi(&built.plan, &|_| true, &origin(""))
+}
+
 #[test]
 fn import_collection_creates_a_folder_named_after_it_with_its_requests() {
     let temp = TempDir::new().expect("temp dir");
     let mut workspace = Workspace::open(temp.path()).expect("open workspace");
 
-    let report = workspace
-        .import_postman_collection(COLLECTION)
-        .expect("import collection");
+    let report = import_collection(&mut workspace, COLLECTION).expect("import collection");
 
     assert!(temp.path().join("Sample API").is_dir());
     assert!(temp.path().join("Sample API/Auth/Login.postino").is_file());
@@ -46,9 +84,7 @@ fn import_collection_creates_a_folder_named_after_it_with_its_requests() {
 fn import_collection_writes_form_data_as_multipart() {
     let temp = TempDir::new().expect("temp dir");
     let mut workspace = Workspace::open(temp.path()).expect("open workspace");
-    let report = workspace
-        .import_postman_collection(COLLECTION)
-        .expect("import collection");
+    let report = import_collection(&mut workspace, COLLECTION).expect("import collection");
     let multipart = report.created_files.iter().any(|id| {
         std::fs::read_to_string(temp.path().join(id))
             .is_ok_and(|text| text.contains("::: body multipart"))
@@ -60,9 +96,7 @@ fn import_collection_writes_form_data_as_multipart() {
 fn import_collection_writes_its_variables_as_an_environment() {
     let temp = TempDir::new().expect("temp dir");
     let mut workspace = Workspace::open(temp.path()).expect("open workspace");
-    workspace
-        .import_postman_collection(COLLECTION)
-        .expect("import collection");
+    import_collection(&mut workspace, COLLECTION).expect("import collection");
 
     let content = fs::read_to_string(temp.path().join("environments/Sample API.env"))
         .expect("read environment file");
@@ -73,12 +107,8 @@ fn import_collection_writes_its_variables_as_an_environment() {
 fn importing_the_same_collection_twice_suffixes_the_second_folder_and_environment() {
     let temp = TempDir::new().expect("temp dir");
     let mut workspace = Workspace::open(temp.path()).expect("open workspace");
-    workspace
-        .import_postman_collection(COLLECTION)
-        .expect("first import");
-    let second = workspace
-        .import_postman_collection(COLLECTION)
-        .expect("second import");
+    import_collection(&mut workspace, COLLECTION).expect("first import");
+    let second = import_collection(&mut workspace, COLLECTION).expect("second import");
 
     assert!(temp.path().join("Sample API (2)").is_dir());
     assert!(
@@ -106,8 +136,7 @@ fn import_collection_never_overwrites_an_existing_file_or_folder() {
         .expect("write stray file");
     let mut workspace = Workspace::open(temp.path()).expect("open workspace");
 
-    workspace
-        .import_postman_collection(COLLECTION)
+    import_collection(&mut workspace, COLLECTION)
         .expect("import collection despite the name clash");
 
     assert!(temp.path().join("Sample API").is_file(), "left untouched");
@@ -119,9 +148,7 @@ fn import_environment_writes_base_and_secret_files() {
     let temp = TempDir::new().expect("temp dir");
     let mut workspace = Workspace::open(temp.path()).expect("open workspace");
 
-    let report = workspace
-        .import_postman_environment(ENVIRONMENT)
-        .expect("import environment");
+    let report = import_environment(&mut workspace, ENVIRONMENT).expect("import environment");
 
     let base = fs::read_to_string(temp.path().join("environments/Sample Env.env"))
         .expect("read base env file");
@@ -152,8 +179,7 @@ fn import_environment_does_not_overwrite_an_existing_env_file() {
     .expect("write pre-existing env file");
     let mut workspace = Workspace::open(temp.path()).expect("open workspace");
 
-    workspace
-        .import_postman_environment(ENVIRONMENT)
+    import_environment(&mut workspace, ENVIRONMENT)
         .expect("import environment despite the name clash");
 
     let untouched = fs::read_to_string(temp.path().join("environments/Sample Env.env"))
@@ -168,8 +194,7 @@ fn import_environment_does_not_overwrite_an_existing_env_file() {
 fn import_environment_without_secret_values_only_writes_the_base_file() {
     let temp = TempDir::new().expect("temp dir");
     let mut workspace = Workspace::open(temp.path()).expect("open workspace");
-    workspace
-        .import_postman_environment(r#"{"name": "Plain", "values": []}"#)
+    import_environment(&mut workspace, r#"{"name": "Plain", "values": []}"#)
         .expect("import minimal environment");
 
     // No values at all: nothing should be written, not even the "environments" folder.
@@ -180,9 +205,7 @@ fn import_environment_without_secret_values_only_writes_the_base_file() {
 fn every_file_written_by_a_collection_import_parses_back_without_errors() {
     let temp = TempDir::new().expect("temp dir");
     let mut workspace = Workspace::open(temp.path()).expect("open workspace");
-    let report = workspace
-        .import_postman_collection(COLLECTION)
-        .expect("import collection");
+    let report = import_collection(&mut workspace, COLLECTION).expect("import collection");
 
     for id in &report.created_files {
         if let Some(name) = id.strip_prefix("environments/") {
@@ -202,9 +225,7 @@ fn every_file_written_by_a_collection_import_parses_back_without_errors() {
 fn every_file_written_by_an_environment_import_parses_back_without_errors() {
     let temp = TempDir::new().expect("temp dir");
     let mut workspace = Workspace::open(temp.path()).expect("open workspace");
-    let report = workspace
-        .import_postman_environment(ENVIRONMENT)
-        .expect("import environment");
+    let report = import_environment(&mut workspace, ENVIRONMENT).expect("import environment");
 
     for id in &report.created_files {
         let name = id
@@ -217,22 +238,13 @@ fn every_file_written_by_an_environment_import_parses_back_without_errors() {
     }
 }
 
-#[test]
-fn import_collection_rejects_invalid_json() {
-    let temp = TempDir::new().expect("temp dir");
-    let mut workspace = Workspace::open(temp.path()).expect("open workspace");
-    assert!(workspace.import_postman_collection("not json").is_err());
-}
-
 /// Sanity check that the workspace rescans after a collection import: the new folder and
 /// requests show up in [`Workspace::tree`] without a manual `rescan`.
 #[test]
 fn import_collection_is_visible_in_the_tree_afterwards() {
     let temp = TempDir::new().expect("temp dir");
     let mut workspace = Workspace::open(temp.path()).expect("open workspace");
-    workspace
-        .import_postman_collection(COLLECTION)
-        .expect("import collection");
+    import_collection(&mut workspace, COLLECTION).expect("import collection");
 
     let names: Vec<&str> = workspace
         .tree()

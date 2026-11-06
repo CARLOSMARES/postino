@@ -289,13 +289,7 @@ fn render_workspace_menu(weak: WeakEntity<AppView>, cx: &mut Context<PopoverStat
                 .child(div().flex_1().child(t!("common.new_workspace")))
                 .on_click(cx.listener(move |popover, _, window, cx| {
                     popover.dismiss(window, cx);
-                    new_workspace::open_new_workspace_dialog(
-                        new_weak.clone(),
-                        new_workspace::NewWorkspacePurpose::Example,
-                        None,
-                        window,
-                        cx,
-                    );
+                    new_workspace::open_new_workspace_dialog(new_weak.clone(), window, cx);
                 })),
         )
 }

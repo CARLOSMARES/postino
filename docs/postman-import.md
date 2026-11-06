@@ -46,3 +46,12 @@ the collection or folder level are not imported at all, and each one raises a wa
 A Postman environment export (`*.postman_environment.json`) becomes `environments/<name>.env`.
 Entries of type `secret` go to `environments/<name>.local.env` instead, which is meant to be
 ignored by git.
+
+## The wizard
+
+Postman uses the import wizard of OpenAPI (`state/openapi_import.rs`, `views/openapi_import.rs`).
+`detect_format` tells the format from the content, on any source. `build_postman_plan` gives an
+`OpenApiPlan`, so the preview, the selection, `Workspace::import_openapi` and the manifest are one
+code path. The request key is `<folders>/<METHOD> <name>`, ` #2` when two collide, and the manifest
+source is `kind = "postman"`, `location = <info._postman_id>`. The report is written by the wizard
+to `.postino/import-report.md`.

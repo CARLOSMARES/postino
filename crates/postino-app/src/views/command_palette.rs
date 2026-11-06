@@ -29,7 +29,7 @@ use crate::views::components::{
 };
 
 use super::root::AppView;
-use super::{import_menu, new_workspace, sidebar};
+use super::{new_workspace, sidebar};
 
 /// Right margin of a row's shortcut hint, so the list's scrollbar does not sit on top of it.
 const SCROLLBAR_CLEARANCE: f32 = 6.0;
@@ -464,10 +464,10 @@ fn execute_action(weak: WeakEntity<AppView>, action: ActionId, window: &mut Wind
             super::openapi_import::open_openapi_wizard(weak, SourceKind::Url, window, cx);
         }
         ActionId::ImportCollection => {
-            import_menu::pick_and_import(weak, import_menu::ImportKind::Collection, window, cx);
+            super::openapi_import::open_postman_wizard(weak, window, cx);
         }
         ActionId::ImportEnvironment => {
-            import_menu::pick_and_import(weak, import_menu::ImportKind::Environment, window, cx);
+            super::openapi_import::open_postman_wizard(weak, window, cx);
         }
         ActionId::OpenSettings => {
             let _ = weak.update(cx, |view, cx| view.open_settings(window, cx));
@@ -475,13 +475,7 @@ fn execute_action(weak: WeakEntity<AppView>, action: ActionId, window: &mut Wind
         ActionId::OpenShortcuts => {
             let _ = weak.update(cx, |view, cx| view.open_shortcuts(window, cx));
         }
-        ActionId::NewWorkspace => new_workspace::open_new_workspace_dialog(
-            weak,
-            new_workspace::NewWorkspacePurpose::Example,
-            None,
-            window,
-            cx,
-        ),
+        ActionId::NewWorkspace => new_workspace::open_new_workspace_dialog(weak, window, cx),
         ActionId::OpenWorkspace => sidebar::pick_workspace_folder(weak, window, cx),
         ActionId::ShowWelcome => {
             let _ = weak.update(cx, |view, cx| view.open_welcome_tab(cx));

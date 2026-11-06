@@ -467,6 +467,15 @@ impl AppView {
     /// [`Self::apply_debug_autosend`]: not a supported feature, not surfaced in any menu.
     /// Recognized targets are listed on [`crate::state::debug_open::DebugOpenTarget`].
     fn apply_debug_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // `POSTINO_IMPORT=<paths>` opens the import wizard on those files, as a drop on the window
+        // does. Native file pickers and drops are out of reach of `xdotool`.
+        if let Some(paths) = std::env::var_os("POSTINO_IMPORT") {
+            let paths: Vec<PathBuf> = std::env::split_paths(&paths).collect();
+            let view = cx.weak_entity();
+            window.defer(cx, move |window, cx| {
+                super::openapi_import::open_wizard_with_files(view, paths, window, cx);
+            });
+        }
         let Ok(value) = std::env::var("POSTINO_OPEN") else {
             return;
         };
@@ -1799,6 +1808,22 @@ impl Render for AppView {
             .size_full()
             .bg(background)
             .track_focus(&self.focus_handle)
+            // A file dropped anywhere opens the import wizard (design Import Flow, 4e).
+            .on_drop({
+                // Not a listener: the wizard reads `AppView` while it opens.
+                let view = cx.weak_entity();
+                move |paths: &ExternalPaths, window, cx| {
+                    let paths = paths.paths().to_vec();
+                    if !paths.is_empty() {
+                        super::openapi_import::open_wizard_with_files(
+                            view.clone(),
+                            paths,
+                            window,
+                            cx,
+                        );
+                    }
+                }
+            })
             .on_action(cx.listener(Self::on_save_action))
             .on_action(cx.listener(Self::on_copy_load_test_summary_action))
             .on_action(cx.listener(Self::on_send_action))

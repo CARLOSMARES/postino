@@ -1,5 +1,6 @@
-//! The OpenAPI import wizard's state (GitHub #201): the source, the loaded specs, the options,
-//! the plan they build and which of its requests are selected, plus the rows of the preview tree.
+//! The import wizard's state (GitHub #201, #211): the format, the source, the loaded specs or
+//! Postman exports, the options, the plan they build and which of its requests are selected, plus
+//! the rows of the preview tree.
 //! Plain Rust, so the wizard's logic is tested without a window; `views/openapi_import.rs`
 //! renders it.
 //!
@@ -7,7 +8,8 @@
 //! every document its `$ref`s point to. It is blocking, the view runs it on the background
 //! executor.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -17,8 +19,38 @@ use postino_format::openapi::{
     PlanChange, PlanFolder, RefLoader, Spec, SpecVersion, build_plan, diff_plan,
     looks_like_catalog, looks_like_spec, parse_catalog, parse_spec,
 };
+use postino_format::postman::{
+    ImportPlan, ImportedEnvironment, IssueLevel, MANIFEST_KIND, PostmanFormat, PostmanOptions,
+    RequestIssue, build_postman_plan, detect_format, parse_collection, parse_environment,
+};
 use postino_runner::Client;
 use postino_workspace::OpenApiCollection;
+use rust_i18n::t;
+
+use crate::state::number::format_integer;
+
+/// What the wizard imports. Detected from the content; the first step's chips preselect it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportFormat {
+    /// OpenAPI or Swagger specs.
+    OpenApi,
+    /// Postman collections, environments and globals.
+    Postman,
+}
+
+/// The sources of `format`, in the order of the source tabs.
+pub fn sources_of(format: ImportFormat) -> &'static [SourceKind] {
+    match format {
+        ImportFormat::OpenApi => &[
+            SourceKind::File,
+            SourceKind::Url,
+            SourceKind::Paste,
+            SourceKind::Folder,
+            SourceKind::Git,
+        ],
+        ImportFormat::Postman => &[SourceKind::File, SourceKind::Paste, SourceKind::Folder],
+    }
+}
 
 /// Where the wizard reads the spec from (the source tabs of the first step).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +92,83 @@ pub struct LoadedSpec {
     pub location: String,
 }
 
+/// A Postman export read by the wizard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PostmanFile {
+    /// What it is.
+    pub format: PostmanFormat,
+    /// The collection or environment name.
+    pub name: String,
+    /// The file it came from, as the source list shows it. Empty for pasted text.
+    pub source: String,
+    /// `info._postman_id` of a collection.
+    pub postman_id: String,
+    /// The format version of a collection (`v2.1`).
+    pub version: String,
+    /// How many requests a collection has, or variables an environment.
+    pub items: usize,
+    /// How many folders a collection has, or secret variables an environment.
+    pub others: usize,
+    /// The export's text, parsed again when the options change.
+    text: Arc<str>,
+}
+
+impl PostmanFile {
+    /// Reads `text`. `None` when it is not a Postman export; an error when it says it is one and
+    /// does not parse.
+    pub fn read(text: &str, source: &str) -> Option<Result<PostmanFile, String>> {
+        let format = detect_format(text)?;
+        let file = |name: String, postman_id, version, items, others| PostmanFile {
+            format,
+            name,
+            source: source.to_string(),
+            postman_id,
+            version,
+            items,
+            others,
+            text: Arc::from(text),
+        };
+        Some(if format == PostmanFormat::Collection {
+            parse_collection(text, &PostmanOptions::default())
+                .map(|plan| {
+                    let version = plan.schema_version.trim_end_matches(".0").to_string();
+                    let (requests, folders) = count_folder(&plan.root);
+                    file(
+                        plan.collection_name,
+                        plan.postman_id,
+                        version,
+                        requests,
+                        folders,
+                    )
+                })
+                .map_err(|error| error.to_string())
+        } else {
+            parse_environment(text)
+                .map(|environment| {
+                    file(
+                        environment.name,
+                        String::new(),
+                        String::new(),
+                        environment.base.len() + environment.secret.len(),
+                        environment.secret.len(),
+                    )
+                })
+                .map_err(|error| error.to_string())
+        })
+    }
+}
+
+/// How many requests and folders `folder` has under it.
+fn count_folder(folder: &postino_format::postman::ImportFolder) -> (usize, usize) {
+    folder.folders.iter().fold(
+        (folder.requests.len(), folder.folders.len()),
+        |(requests, folders), child| {
+            let (more_requests, more_folders) = count_folder(child);
+            (requests + more_requests, folders + more_folders)
+        },
+    )
+}
+
 /// A file that looked like a spec, or that a catalog pointed to, and could not be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Failure {
@@ -87,6 +196,30 @@ pub struct Loaded {
     pub failures: Vec<Failure>,
     /// The catalog files read.
     pub catalogs: Vec<CatalogFile>,
+    /// The Postman exports read.
+    pub postman: Vec<PostmanFile>,
+}
+
+impl Loaded {
+    /// Adds what another file of the source gave.
+    pub fn merge(&mut self, other: Loaded) {
+        self.specs.extend(other.specs);
+        self.failures.extend(other.failures);
+        self.catalogs.extend(other.catalogs);
+        self.postman.extend(other.postman);
+    }
+
+    /// The format what was read is in: specs win, as they cannot be told apart from a Postman file
+    /// of the same folder by anything else. `None` when nothing was read.
+    pub fn format(&self) -> Option<ImportFormat> {
+        if !self.specs.is_empty() {
+            Some(ImportFormat::OpenApi)
+        } else if !self.postman.is_empty() {
+            Some(ImportFormat::Postman)
+        } else {
+            None
+        }
+    }
 }
 
 /// The `Accept` header of a spec download: the YAML and JSON types servers use for specs.
@@ -104,11 +237,24 @@ const MAX_SCAN_FILES: usize = 5_000;
 /// The biggest file a folder scan reads.
 const MAX_SCAN_FILE_SIZE: u64 = 32 * 1024 * 1024;
 
+/// How many bytes of a `.zip` export are read, unpacked, at most: a guard against a file that
+/// unpacks to far more than it looks.
+const MAX_ZIP_SIZE: u64 = 512 * 1024 * 1024;
+
 /// Reads the file at `path`: a spec, or a Backstage catalog whose OpenAPI APIs are read in turn.
 /// `shown` is how the source list names it. A catalog with no readable spec is not an error:
 /// the result lists the failures.
 pub fn load_path(path: &Path, shown: &str, client: &Client) -> Result<Loaded, String> {
+    if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+    {
+        return load_zip(path);
+    }
     let text = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
+    if let Some(found) = load_postman(&text, shown) {
+        return found;
+    }
     let location = canonical(path);
     if is_catalog_name(path) || (!looks_like_spec(&text) && looks_like_catalog(&text)) {
         return load_catalog(&text, &location, shown, client);
@@ -121,6 +267,87 @@ pub fn load_path(path: &Path, shown: &str, client: &Client) -> Result<Loaded, St
             source: shown.to_string(),
             location,
         }],
+        ..Loaded::default()
+    })
+}
+
+/// What `text` gives when it is a Postman export.
+fn load_postman(text: &str, shown: &str) -> Option<Result<Loaded, String>> {
+    let file = PostmanFile::read(text, shown)?;
+    Some(file.map(|file| Loaded {
+        postman: vec![file],
+        ..Loaded::default()
+    }))
+}
+
+/// Reads the Postman exports of a `.zip`, Postman's data export. What is not one is ignored, a
+/// file that says it is one and does not parse is listed as a failure.
+fn load_zip(path: &Path) -> Result<Loaded, String> {
+    let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|error| error.to_string())?;
+    let mut loaded = Loaded::default();
+    let mut left = MAX_ZIP_SIZE;
+    for index in 0..archive.len() {
+        let entry = archive.by_index(index).map_err(|error| error.to_string())?;
+        let name = entry
+            .name()
+            .map_err(|error| error.to_string())?
+            .into_owned();
+        if !entry.is_file() || !name.to_ascii_lowercase().ends_with(".json") {
+            continue;
+        }
+        let mut text = String::new();
+        let read = entry.take(left).read_to_string(&mut text);
+        let Ok(read) = read else {
+            continue;
+        };
+        left -= read as u64;
+        if left == 0 {
+            return Err("the .zip unpacks to more than 512 MB".to_string());
+        }
+        match PostmanFile::read(&text, &name) {
+            Some(Ok(file)) => loaded.postman.push(file),
+            Some(Err(error)) => loaded.failures.push(Failure {
+                source: name,
+                error,
+            }),
+            None => {}
+        }
+    }
+    if loaded.postman.is_empty() && loaded.failures.is_empty() {
+        return Err("the .zip has no Postman export".to_string());
+    }
+    Ok(loaded)
+}
+
+/// Reads several files, what they give put together. A file that cannot be read is listed as a
+/// failure, so the others still count.
+pub fn load_files(paths: &[PathBuf], client: &Client) -> Result<Loaded, String> {
+    let mut loaded = Loaded::default();
+    for path in paths {
+        let shown = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        match load_path(path, &shown, client) {
+            Ok(found) => loaded.merge(found),
+            Err(error) if paths.len() > 1 => loaded.failures.push(Failure {
+                source: shown,
+                error,
+            }),
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(loaded)
+}
+
+/// Reads pasted text: a Postman export or a spec.
+pub fn load_pasted(text: &str) -> Result<Loaded, String> {
+    if let Some(found) = load_postman(text, "") {
+        return found;
+    }
+    load_text(text).map(|spec| Loaded {
+        specs: vec![spec],
         ..Loaded::default()
     })
 }
@@ -212,6 +439,20 @@ pub fn scan_folder(root: &Path, client: &Client) -> Result<Loaded, String> {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
+        match PostmanFile::read(&text, &shown) {
+            Some(Ok(file)) => {
+                loaded.postman.push(file);
+                continue;
+            }
+            Some(Err(error)) => {
+                loaded.failures.push(Failure {
+                    source: shown,
+                    error,
+                });
+                continue;
+            }
+            None => {}
+        }
         let catalog = is_catalog_name(&path);
         if !catalog && !looks_like_spec(&text) {
             continue;
@@ -459,7 +700,71 @@ pub enum RowKind {
         method: Method,
         /// Whether it is selected.
         checked: bool,
+        /// What the preview shows at its right, for a Postman request: its path.
+        path: String,
+        /// The most serious thing to tell about it.
+        issue: Option<RequestIssue>,
     },
+}
+
+/// The short text of `issue`, for a row of the preview and the import report.
+pub fn issue_text(issue: &RequestIssue) -> String {
+    match issue {
+        RequestIssue::ScriptConverted => t!("import.issue.script_converted").into_owned(),
+        RequestIssue::ScriptPartial { converted, total } => t!(
+            "import.issue.script_partial",
+            converted = format_integer(*converted as u64),
+            total = format_integer(*total as u64)
+        )
+        .into_owned(),
+        RequestIssue::SendRequest => t!("import.issue.send_request").into_owned(),
+        RequestIssue::ScriptNotConverted => t!("import.issue.script_not_converted").into_owned(),
+        RequestIssue::OAuth2Token => t!("import.issue.oauth2").into_owned(),
+        RequestIssue::AuthUnsupported(kind) => {
+            t!("import.issue.auth_unsupported", kind = kind.as_str()).into_owned()
+        }
+        RequestIssue::FormDataFile => t!("import.issue.form_data_file").into_owned(),
+        RequestIssue::FormDataManyFiles => t!("import.issue.form_data_many").into_owned(),
+        RequestIssue::BodyUnsupported(kind) => {
+            t!("import.issue.body_unsupported", kind = kind.as_str()).into_owned()
+        }
+    }
+}
+
+/// The text of the import report: every request with something to look at, then the warnings of
+/// the import. Empty when there is nothing to report.
+pub fn report_text(
+    collection: &str,
+    issues: &[(String, Vec<RequestIssue>)],
+    warnings: &[String],
+) -> String {
+    let worth: Vec<_> = issues
+        .iter()
+        .filter(|(_, issues)| issues.iter().any(|issue| issue.level() != IssueLevel::Note))
+        .collect();
+    if worth.is_empty() && warnings.is_empty() {
+        return String::new();
+    }
+    let mut text = format!("# {}\n\n", t!("import.report.title", name = collection));
+    if !worth.is_empty() {
+        text.push_str(&format!("## {}\n\n", t!("import.report.requests")));
+        for (name, issues) in worth {
+            let notes: Vec<String> = issues
+                .iter()
+                .filter(|issue| issue.level() != IssueLevel::Note)
+                .map(issue_text)
+                .collect();
+            text.push_str(&format!("- `{name}`: {}\n", notes.join(", ")));
+        }
+        text.push('\n');
+    }
+    if !warnings.is_empty() {
+        text.push_str(&format!("## {}\n\n", t!("import.report.warnings")));
+        for warning in warnings {
+            text.push_str(&format!("- {warning}\n"));
+        }
+    }
+    text
 }
 
 /// The separator of folder paths in [`PreviewRow::id`], a character no folder name has.
@@ -469,10 +774,20 @@ const PATH_SEPARATOR: char = '\u{1f}';
 pub struct Wizard {
     /// The current step.
     pub step: Step,
+    /// What is being imported.
+    pub format: ImportFormat,
     /// The selected source tab.
     pub source: SourceKind,
     /// The import options of the second step.
     pub options: ImportOptions,
+    /// The "Convert" options of a Postman import.
+    pub postman_options: PostmanOptions,
+    /// The Postman exports loaded in the first step.
+    postman: Vec<PostmanFile>,
+    /// Which of them are imported, one flag per file.
+    postman_enabled: Vec<bool>,
+    /// What to tell about the requests of the plan, for a Postman import.
+    issues: HashMap<String, Vec<RequestIssue>>,
     /// The specs loaded in the first step.
     specs: Vec<LoadedSpec>,
     /// Which of them are imported (the Versions list), one flag per spec.
@@ -548,11 +863,16 @@ pub fn find_existing(
 
 impl Wizard {
     /// A wizard on its first step, with `source` selected.
-    pub fn new(source: SourceKind) -> Self {
+    pub fn new(format: ImportFormat, source: SourceKind) -> Self {
         Wizard {
             step: Step::Source,
+            format,
             source,
             options: ImportOptions::default(),
+            postman_options: PostmanOptions::default(),
+            postman: Vec::new(),
+            postman_enabled: Vec::new(),
+            issues: HashMap::new(),
             specs: Vec::new(),
             enabled: Vec::new(),
             failures: Vec::new(),
@@ -588,20 +908,159 @@ impl Wizard {
 
     /// Whether nothing was loaded, not even a failure.
     pub fn is_empty(&self) -> bool {
-        self.specs.is_empty() && self.failures.is_empty() && self.catalogs.is_empty()
+        self.specs.is_empty()
+            && self.failures.is_empty()
+            && self.catalogs.is_empty()
+            && self.postman.is_empty()
+    }
+
+    /// Whether the source gave something to import.
+    pub fn has_content(&self) -> bool {
+        !self.specs.is_empty() || !self.postman.is_empty()
+    }
+
+    /// The Postman exports loaded.
+    pub fn postman_files(&self) -> &[PostmanFile] {
+        &self.postman
+    }
+
+    /// Whether the Postman export at `index` is imported.
+    pub fn is_postman_enabled(&self, index: usize) -> bool {
+        self.postman_enabled.get(index).copied().unwrap_or(false)
+    }
+
+    /// Flips the Postman export at `index`.
+    pub fn toggle_postman(&mut self, index: usize) {
+        if let Some(flag) = self.postman_enabled.get_mut(index) {
+            *flag = !*flag;
+        }
+    }
+
+    /// Whether a Postman import has a collection to write.
+    pub fn has_collection(&self) -> bool {
+        self.enabled_postman()
+            .any(|file| file.format == PostmanFormat::Collection)
+    }
+
+    fn enabled_postman(&self) -> impl Iterator<Item = &PostmanFile> {
+        self.postman
+            .iter()
+            .zip(&self.postman_enabled)
+            .filter(|(_, enabled)| **enabled)
+            .map(|(file, _)| file)
+    }
+
+    /// The manifest source of a Postman import: the collection's id, which identifies it wherever
+    /// the file is. Several collections, or one without an id, cannot be told again later.
+    pub fn postman_source(&self) -> ManifestSource {
+        let mut collections = self
+            .postman
+            .iter()
+            .filter(|file| file.format == PostmanFormat::Collection);
+        let location = match (collections.next(), collections.next()) {
+            (Some(only), None) => only.postman_id.clone(),
+            _ => String::new(),
+        };
+        ManifestSource {
+            kind: MANIFEST_KIND.to_string(),
+            location,
+            branch: String::new(),
+        }
+    }
+
+    /// The most serious thing to tell about the request `key`.
+    pub fn issue_of(&self, key: &str) -> Option<&RequestIssue> {
+        self.issues
+            .get(key)?
+            .iter()
+            .max_by_key(|issue| issue.level())
+    }
+
+    /// What to tell about each selected request of a Postman import, in tree order: the request
+    /// name and its issues. Requests with nothing to tell are left out.
+    pub fn selected_issues(&self) -> Vec<(String, Vec<RequestIssue>)> {
+        fn walk(
+            wizard: &Wizard,
+            folder: &PlanFolder,
+            path: &str,
+            out: &mut Vec<(String, Vec<RequestIssue>)>,
+        ) {
+            for request in &folder.requests {
+                if !wizard.is_selected(&request.key) {
+                    continue;
+                }
+                if let Some(issues) = wizard.issues.get(&request.key) {
+                    out.push((format!("{path}{}", request.name), issues.clone()));
+                }
+            }
+            for child in &folder.folders {
+                walk(wizard, child, &format!("{path}{}/", child.name), out);
+            }
+        }
+        let mut out = Vec::new();
+        if let Some(plan) = &self.plan {
+            walk(self, &plan.root, "", &mut out);
+        }
+        out
+    }
+
+    /// How many selected requests are complete, have a warning and have something unsupported,
+    /// for the counts of the Preview step.
+    pub fn compat_counts(&self) -> (usize, usize, usize) {
+        let (mut warning, mut unsupported) = (0, 0);
+        for (_, issues) in self.selected_issues() {
+            match issues.iter().map(RequestIssue::level).max() {
+                Some(IssueLevel::Unsupported) => unsupported += 1,
+                Some(IssueLevel::Warning) => warning += 1,
+                _ => {}
+            }
+        }
+        (
+            self.selected_count() - warning - unsupported,
+            warning,
+            unsupported,
+        )
     }
 
     /// Replaces what the source gave, which starts the selection over.
     pub fn set_loaded(&mut self, loaded: Loaded) {
+        let format = loaded.format();
         self.set_specs(loaded.specs);
         self.failures = loaded.failures;
         self.catalogs = loaded.catalogs;
+        if let Some(format) = format {
+            self.format = format;
+        }
+        if self.format == ImportFormat::Postman {
+            self.postman_enabled = vec![true; loaded.postman.len()];
+            self.postman = loaded.postman;
+        } else if !loaded.postman.is_empty() {
+            for file in loaded.postman {
+                self.failures.push(Failure {
+                    source: file.source,
+                    error: "a Postman export next to OpenAPI specs, import it on its own"
+                        .to_string(),
+                });
+            }
+        }
+    }
+
+    /// Switches the format, which starts over: the sources are not the same.
+    pub fn set_format(&mut self, format: ImportFormat) {
+        self.format = format;
+        self.set_specs(Vec::new());
+        if !sources_of(format).contains(&self.source) {
+            self.source = SourceKind::File;
+        }
     }
 
     /// Replaces the loaded specs, which starts the selection over.
     pub fn set_specs(&mut self, specs: Vec<LoadedSpec>) {
         self.enabled = vec![true; specs.len()];
         self.specs = specs;
+        self.postman.clear();
+        self.postman_enabled.clear();
+        self.issues.clear();
         self.failures.clear();
         self.catalogs.clear();
         self.plan = None;
@@ -686,6 +1145,21 @@ impl Wizard {
 
     /// The name the collection gets unless the user types another one: the first spec's title.
     pub fn suggested_name(&self) -> String {
+        if self.format == ImportFormat::Postman {
+            let collections: Vec<&PostmanFile> = self
+                .postman
+                .iter()
+                .filter(|file| file.format == PostmanFormat::Collection)
+                .collect();
+            return match collections.as_slice() {
+                [only] => only.name.clone(),
+                [] => self
+                    .postman
+                    .first()
+                    .map_or_else(|| "Postman".to_string(), |file| file.name.clone()),
+                _ => "Postman".to_string(),
+            };
+        }
         self.specs
             .first()
             .map(|loaded| loaded.spec.title.clone())
@@ -771,6 +1245,10 @@ impl Wizard {
     /// options, and the preview rows. Call it when the specs, the name or an option change,
     /// never on every render.
     pub fn rebuild(&mut self, name: &str) {
+        if self.format == ImportFormat::Postman {
+            self.rebuild_postman(name);
+            return;
+        }
         let labels = self.version_labels();
         let versions: Vec<SpecVersion<'_>> = self
             .specs
@@ -792,6 +1270,39 @@ impl Wizard {
         if self.full_plan.is_none() {
             self.full_plan = Some(build_plan(&name, &versions, &ImportOptions::default()));
         }
+        self.set_plan(plan);
+    }
+
+    /// [`Self::rebuild`] for a Postman import.
+    fn rebuild_postman(&mut self, name: &str) {
+        let options = self.postman_options;
+        let mut collections: Vec<ImportPlan> = Vec::new();
+        let mut environments: Vec<ImportedEnvironment> = Vec::new();
+        let mut globals: Vec<ImportedEnvironment> = Vec::new();
+        for file in self.enabled_postman() {
+            // Each of them parsed when it was read, so these only fail on what cannot happen.
+            match file.format {
+                PostmanFormat::Collection => {
+                    collections.extend(parse_collection(&file.text, &options).ok());
+                }
+                PostmanFormat::Environment => {
+                    environments.extend(parse_environment(&file.text).ok());
+                }
+                PostmanFormat::Globals => globals.extend(parse_environment(&file.text).ok()),
+            }
+        }
+        let name = if name.trim().is_empty() {
+            self.suggested_name()
+        } else {
+            name.trim().to_string()
+        };
+        let built = build_postman_plan(&name, &collections, &environments, &globals, &options);
+        self.issues = built.issues;
+        self.set_plan(built.plan);
+    }
+
+    /// Makes `plan` the current plan, with the changes since an earlier import and the rows.
+    fn set_plan(&mut self, plan: OpenApiPlan) {
         if let Some(existing) = &self.existing {
             let first = self.changes.is_empty() && self.unchanged == 0;
             let mut changes = diff_plan(&existing.manifest, &plan);
@@ -881,6 +1392,13 @@ impl Wizard {
 
     /// How many operations the loaded specs have.
     pub fn operation_count(&self) -> usize {
+        if self.format == ImportFormat::Postman {
+            return self
+                .enabled_postman()
+                .filter(|file| file.format == PostmanFormat::Collection)
+                .map(|file| file.items)
+                .sum();
+        }
         self.specs
             .iter()
             .zip(&self.enabled)
@@ -1013,6 +1531,12 @@ impl Wizard {
                 kind: RowKind::Request {
                     method: request.request.method.clone(),
                     checked: self.is_selected(&request.key),
+                    path: if self.format == ImportFormat::Postman {
+                        request.path.clone()
+                    } else {
+                        String::new()
+                    },
+                    issue: self.issue_of(&request.key).cloned(),
                 },
             });
         }
@@ -1030,6 +1554,7 @@ fn folder_at<'a>(root: &'a PlanFolder, path: &str) -> Option<&'a PlanFolder> {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use postino_runner::SendOptions;
     use pretty_assertions::assert_eq;
 
     const SPEC: &str = r##"
@@ -1051,7 +1576,7 @@ paths:
 "##;
 
     fn wizard() -> Wizard {
-        let mut wizard = Wizard::new(SourceKind::Paste);
+        let mut wizard = Wizard::new(ImportFormat::OpenApi, SourceKind::Paste);
         wizard.set_specs(vec![load_text(SPEC).expect("valid")]);
         wizard.rebuild("");
         wizard
@@ -1156,7 +1681,7 @@ paths:
 
     #[test]
     fn several_specs_get_version_folders() {
-        let mut wizard = Wizard::new(SourceKind::File);
+        let mut wizard = Wizard::new(ImportFormat::OpenApi, SourceKind::File);
         let v1 = load_text(&SPEC.replace("2.0.0", "1.4.0")).expect("valid");
         let mut v2 = load_text(SPEC).expect("valid");
         v2.source = "specs/payments-v2.yaml".to_string();
@@ -1254,6 +1779,147 @@ paths:
         );
         wizard.set_update(false);
         assert!(!wizard.is_update());
+    }
+
+    const POSTMAN_COLLECTION: &str = r#"{
+      "info": {
+        "_postman_id": "4f1c",
+        "name": "Acme",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+      },
+      "variable": [{"key": "baseUrl", "value": "https://acme.dev"}],
+      "item": [
+        {"name": "Ping", "request": {"method": "GET", "url": "{{baseUrl}}/ping"}},
+        {"name": "Auth", "item": [
+          {"name": "Report", "request": {"method": "GET", "url": "{{baseUrl}}/r",
+            "auth": {"type": "hawk"}}},
+          {"name": "Login", "request": {"method": "POST", "url": "{{baseUrl}}/login"},
+            "event": [{"listen": "test", "script": {"exec": ["pm.sendRequest('x', () => {});"]}}]},
+          {"name": "Check", "request": {"method": "GET", "url": "{{baseUrl}}/c"},
+            "event": [{"listen": "test", "script": {"exec": ["pm.response.to.have.status(200);"]}}]}
+        ]}
+      ]
+    }"#;
+    const POSTMAN_ENVIRONMENT: &str = r#"{"name": "Production",
+      "_postman_variable_scope": "environment",
+      "values": [{"key": "baseUrl", "value": "https://prod", "enabled": true}]}"#;
+
+    fn postman_wizard() -> Wizard {
+        let mut wizard = Wizard::new(ImportFormat::Postman, SourceKind::File);
+        let mut loaded = load_pasted(POSTMAN_COLLECTION).expect("a collection");
+        loaded.merge(load_pasted(POSTMAN_ENVIRONMENT).expect("an environment"));
+        wizard.set_loaded(loaded);
+        wizard
+    }
+
+    #[test]
+    fn a_postman_export_is_detected_and_listed() {
+        let mut wizard = Wizard::new(ImportFormat::OpenApi, SourceKind::Paste);
+        wizard.set_loaded(load_pasted(POSTMAN_COLLECTION).expect("a collection"));
+        assert_eq!(wizard.format, ImportFormat::Postman);
+        let [file] = wizard.postman_files() else {
+            panic!("one file");
+        };
+        assert_eq!(file.name, "Acme");
+        assert_eq!(file.version, "v2.1");
+        assert_eq!((file.items, file.others), (4, 1));
+        assert_eq!(wizard.suggested_name(), "Acme");
+        assert_eq!(wizard.postman_source().location, "4f1c");
+    }
+
+    #[test]
+    fn a_postman_plan_has_the_selection_and_the_compatibility() {
+        let mut wizard = postman_wizard();
+        wizard.rebuild("Acme");
+        assert_eq!(wizard.total_count(), 4);
+        assert_eq!(wizard.compat_counts(), (2, 1, 1));
+        wizard.toggle_request("Auth/GET Report");
+        assert_eq!(wizard.compat_counts(), (2, 1, 0));
+        let plan = wizard.plan().expect("a plan");
+        assert_eq!(plan.environments[0].name, "Production");
+    }
+
+    #[test]
+    fn unchecking_the_environment_falls_back_to_the_collection_variables() {
+        let mut wizard = postman_wizard();
+        wizard.toggle_postman(1);
+        wizard.rebuild("Acme");
+        let plan = wizard.plan().expect("a plan");
+        assert_eq!(plan.environments[0].name, "Acme");
+    }
+
+    #[test]
+    fn switching_the_format_starts_over() {
+        let mut wizard = postman_wizard();
+        wizard.source = SourceKind::Paste;
+        wizard.set_format(ImportFormat::OpenApi);
+        assert!(!wizard.has_content());
+        wizard.source = SourceKind::Git;
+        wizard.set_format(ImportFormat::Postman);
+        assert_eq!(wizard.source, SourceKind::File);
+    }
+
+    #[test]
+    fn a_zip_export_gives_its_postman_files() {
+        use std::io::Write as _;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("export.zip");
+        let file = std::fs::File::create(&path).expect("create");
+        let mut archive = zip::ZipWriter::new(file);
+        for (name, text) in [
+            ("dump/a.postman_collection.json", POSTMAN_COLLECTION),
+            ("dump/b.postman_environment.json", POSTMAN_ENVIRONMENT),
+            ("dump/other.json", "{}"),
+            ("dump/notes.txt", POSTMAN_COLLECTION),
+        ] {
+            archive
+                .start_file(name, zip::write::SimpleFileOptions::default())
+                .expect("entry");
+            archive.write_all(text.as_bytes()).expect("write");
+        }
+        archive.finish().expect("finish");
+
+        let loaded = load_files(&[path], &Client::new(SendOptions::default())).expect("a zip");
+        let names: Vec<&str> = loaded
+            .postman
+            .iter()
+            .map(|file| file.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["Acme", "Production"]);
+        assert_eq!(loaded.format(), Some(ImportFormat::Postman));
+    }
+
+    #[test]
+    fn a_folder_scan_finds_postman_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("a.json"), POSTMAN_COLLECTION).expect("write");
+        std::fs::write(dir.path().join("readme.json"), "{}").expect("write");
+        let loaded =
+            scan_folder(dir.path(), &Client::new(SendOptions::default())).expect("a folder");
+        assert_eq!(loaded.postman.len(), 1);
+    }
+
+    #[test]
+    fn the_report_lists_what_needs_a_look_and_nothing_else() {
+        let report = report_text(
+            "Acme",
+            &[
+                ("Check".to_string(), vec![RequestIssue::ScriptConverted]),
+                ("Auth/Report".to_string(), vec![RequestIssue::FormDataFile]),
+            ],
+            &["a warning".to_string()],
+        );
+        assert!(report.contains("`Auth/Report`"), "{report}");
+        assert!(!report.contains("Check"), "{report}");
+        assert!(report.contains("- a warning"), "{report}");
+        assert_eq!(
+            report_text(
+                "Acme",
+                &[("C".to_string(), vec![RequestIssue::ScriptConverted])],
+                &[]
+            ),
+            ""
+        );
     }
 
     #[test]

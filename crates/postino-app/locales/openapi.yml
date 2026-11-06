@@ -96,10 +96,10 @@ _version: 2
   gl: "Os ficheiros de $ref externos resólvense a partir deste URL. A descarga usa os axustes de TLS das peticións."
   it: "I file $ref esterni vengono risolti rispetto a questo URL. Il download usa le impostazioni TLS delle richieste."
 "openapi.paste.placeholder":
-  en: "Paste an OpenAPI or Swagger spec, YAML or JSON"
-  es: "Pegar una especificación OpenAPI o Swagger, en YAML o JSON"
-  gl: "Pegar unha especificación OpenAPI ou Swagger, en YAML ou JSON"
-  it: "Incolla una specifica OpenAPI o Swagger, YAML o JSON"
+  en: "Paste an OpenAPI or Swagger spec, or a Postman export"
+  es: "Pega una especificación OpenAPI o Swagger, o una exportación de Postman"
+  gl: "Pega unha especificación OpenAPI ou Swagger, ou unha exportación de Postman"
+  it: "Incolla una specifica OpenAPI o Swagger, o un'esportazione di Postman"
 "openapi.paste.hint":
   en: "Pasted text has no location, so external $ref files cannot be read."
   es: "El texto pegado no tiene ubicación, así que no se pueden leer archivos de $ref externos."

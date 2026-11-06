@@ -23,8 +23,7 @@ use crate::theme::metrics::{
 use crate::theme::{Palette, PaletteExt};
 
 use super::components::{PrimaryButton, SecondaryButton, SectionLabel};
-use super::import_menu::{self, ImportKind};
-use super::new_workspace::{self, NewWorkspacePurpose};
+use super::new_workspace;
 use super::root::AppView;
 use super::settings::theme_card;
 use super::sidebar;
@@ -161,8 +160,6 @@ impl AppView {
                             .on_click(move |_, window, cx| {
                                 new_workspace::open_new_workspace_dialog(
                                     new_weak.clone(),
-                                    NewWorkspacePurpose::Example,
-                                    None,
                                     window,
                                     cx,
                                 );
@@ -310,13 +307,7 @@ fn render_start(
             t!("common.new_workspace").into(),
             None,
             Box::new(move |window, cx| {
-                new_workspace::open_new_workspace_dialog(
-                    new_weak.clone(),
-                    NewWorkspacePurpose::Example,
-                    None,
-                    window,
-                    cx,
-                );
+                new_workspace::open_new_workspace_dialog(new_weak.clone(), window, cx);
             }),
         ),
         (
@@ -348,7 +339,7 @@ fn render_start(
             t!("welcome.import_postman").into(),
             None,
             Box::new(move |window, cx| {
-                import_menu::pick_and_import(weak.clone(), ImportKind::Collection, window, cx);
+                super::openapi_import::open_postman_wizard(weak.clone(), window, cx);
             }),
         ),
     ];
