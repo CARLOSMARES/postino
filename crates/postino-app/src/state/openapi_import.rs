@@ -788,6 +788,8 @@ pub struct Wizard {
     postman_enabled: Vec<bool>,
     /// What to tell about the requests of the plan, for a Postman import.
     issues: HashMap<String, Vec<RequestIssue>>,
+    /// See [`Self::compat_counts`].
+    compat: (usize, usize, usize),
     /// The specs loaded in the first step.
     specs: Vec<LoadedSpec>,
     /// Which of them are imported (the Versions list), one flag per spec.
@@ -873,6 +875,7 @@ impl Wizard {
             postman: Vec::new(),
             postman_enabled: Vec::new(),
             issues: HashMap::new(),
+            compat: (0, 0, 0),
             specs: Vec::new(),
             enabled: Vec::new(),
             failures: Vec::new(),
@@ -1005,8 +1008,12 @@ impl Wizard {
     }
 
     /// How many selected requests are complete, have a warning and have something unsupported,
-    /// for the counts of the Preview step.
+    /// for the counts of the Preview step. Kept with the rows, so render does not walk the tree.
     pub fn compat_counts(&self) -> (usize, usize, usize) {
+        self.compat
+    }
+
+    fn count_compat(&self) -> (usize, usize, usize) {
         let (mut warning, mut unsupported) = (0, 0);
         for (_, issues) in self.selected_issues() {
             match issues.iter().map(RequestIssue::level).max() {
@@ -1490,6 +1497,7 @@ impl Wizard {
             self.counts = (selected, keys.len(), plan.root.folder_count());
         }
         self.rows = Arc::from(rows);
+        self.compat = self.count_compat();
     }
 
     fn push_rows(&self, folder: &PlanFolder, path: &str, depth: usize, rows: &mut Vec<PreviewRow>) {

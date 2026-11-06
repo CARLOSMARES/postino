@@ -647,7 +647,8 @@ fn primary_action(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut A
 fn run_import(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut App) -> bool {
     let (view, plan, excluded, origin, update, destination, issues) = {
         let wizard = wizard.read(cx);
-        let issues = if wizard.state.format == ImportFormat::Postman {
+        // An update leaves the unchanged requests alone: there is nothing new to review.
+        let issues = if wizard.state.format == ImportFormat::Postman && !wizard.state.is_update() {
             Some(wizard.state.selected_issues())
         } else {
             None
@@ -2309,6 +2310,12 @@ fn render_preview(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) ->
     v_flex()
         .size_full()
         .gap(px(12.0))
+        .children(
+            state
+                .error
+                .clone()
+                .map(|error| InlineMessage::new(InlineMessageKind::Danger, error)),
+        )
         .child(
             h_flex()
                 .flex_none()

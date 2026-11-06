@@ -440,3 +440,8 @@ _version: 2
   es: "Esto no es una especificación OpenAPI ni una exportación de Postman."
   gl: "Isto non é unha especificación OpenAPI nin unha exportación de Postman."
   it: "Questa non è una specifica OpenAPI né un'esportazione di Postman."
+"import.palette.update_postman":
+  en: "Update collection from Postman..."
+  es: "Actualizar colección desde Postman..."
+  gl: "Actualizar colección desde Postman..."
+  it: "Aggiorna raccolta da Postman..."

@@ -83,13 +83,16 @@ pub enum ActionId {
     NewRequest,
     /// Starts creating a new folder.
     NewFolder,
-    /// Opens the OpenAPI import wizard on its File source.
+    /// Opens the import wizard for OpenAPI, on its File source.
     ImportOpenApi,
-    /// Opens the OpenAPI import wizard on its URL source.
+    /// Opens the import wizard for OpenAPI, on its URL source.
     ImportOpenApiUrl,
-    /// Opens the Postman collection import dialog.
+    /// Opens the import wizard for Postman, whose export of a collection already imported offers
+    /// to update it.
+    UpdateFromPostman,
+    /// Opens the import wizard for Postman.
     ImportCollection,
-    /// Opens the Postman environment import dialog.
+    /// Opens the import wizard for Postman.
     ImportEnvironment,
     /// Opens the Settings modal.
     OpenSettings,
@@ -257,6 +260,11 @@ pub fn action_items() -> Vec<PaletteItem> {
         action_item(
             ActionId::ImportEnvironment,
             t!("shell.palette.import_environment"),
+            None,
+        ),
+        action_item(
+            ActionId::UpdateFromPostman,
+            t!("import.palette.update_postman"),
             None,
         ),
         action_item(
@@ -496,7 +504,7 @@ mod tests {
     #[test]
     fn action_items_cover_every_action_id() {
         let items = action_items();
-        assert_eq!(items.len(), 16);
+        assert_eq!(items.len(), 17);
         assert!(
             items
                 .iter()

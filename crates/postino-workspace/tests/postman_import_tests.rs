@@ -5,7 +5,7 @@
 
 use std::fs;
 
-use postino_format::openapi::{ImportOptions, ManifestSource};
+use postino_format::openapi::{ChangeKind, ImportOptions, ManifestSource, diff_plan};
 use postino_format::postman::{
     MANIFEST_KIND, PostmanOptions, build_postman_plan, parse_collection, parse_environment,
 };
@@ -252,4 +252,78 @@ fn import_collection_is_visible_in_the_tree_afterwards() {
         .map(postino_workspace::Node::name)
         .collect();
     assert!(names.contains(&"Sample API"));
+}
+
+const V1: &str = r#"{
+  "info": {"_postman_id": "4f1c", "name": "Acme",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "item": [
+    {"name": "List", "request": {"method": "GET", "url": "{{baseUrl}}/list"},
+     "event": [{"listen": "test", "script": {"exec": ["pm.response.to.have.status(200);"]}}]},
+    {"name": "Old", "request": {"method": "GET", "url": "{{baseUrl}}/old"}}
+  ]
+}"#;
+
+const V2: &str = r#"{
+  "info": {"_postman_id": "4f1c", "name": "Acme",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "item": [
+    {"name": "List", "request": {"method": "GET", "url": "{{baseUrl}}/v2/list"},
+     "event": [{"listen": "test", "script": {"exec": ["pm.response.to.have.status(201);"]}}]},
+    {"name": "New", "request": {"method": "POST", "url": "{{baseUrl}}/new"}}
+  ]
+}"#;
+
+fn plan_of(text: &str) -> postino_format::openapi::OpenApiPlan {
+    let options = PostmanOptions::default();
+    let collection = parse_collection(text, &options).expect("a collection");
+    let name = collection.collection_name.clone();
+    build_postman_plan(&name, &[collection], &[], &[], &options).plan
+}
+
+#[test]
+fn a_new_export_of_a_collection_updates_it_and_keeps_edited_scripts() {
+    let temp = TempDir::new().expect("temp dir");
+    let mut workspace = Workspace::open(temp.path()).expect("open workspace");
+    workspace
+        .import_openapi(&plan_of(V1), &|_| true, &origin("4f1c"))
+        .expect("first import");
+
+    // The collection is found again by its id, wherever the file is.
+    let collections = workspace.openapi_collections();
+    assert_eq!(collections.len(), 1);
+    assert_eq!(collections[0].manifest.source.kind, MANIFEST_KIND);
+    assert_eq!(collections[0].manifest.source.location, "4f1c");
+
+    // The user's own script stays.
+    let list = temp.path().join("Acme/List.postino");
+    let edited = fs::read_to_string(&list)
+        .expect("read")
+        .replace("toBe(200)", "toBe(299)");
+    fs::write(&list, edited).expect("write");
+
+    let plan = plan_of(V2);
+    let changes = diff_plan(&collections[0].manifest, &plan);
+    let kinds: Vec<(&str, ChangeKind)> = changes
+        .iter()
+        .map(|change| (change.key.as_str(), change.kind))
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            ("GET List", ChangeKind::Changed),
+            ("POST New", ChangeKind::Added),
+            ("GET Old", ChangeKind::Removed),
+        ]
+    );
+
+    let report = workspace
+        .update_openapi("Acme", &plan, &|_| true, &origin("4f1c"))
+        .expect("update");
+    assert_eq!((report.added, report.changed, report.removed), (1, 1, 1));
+    let list = fs::read_to_string(&list).expect("read");
+    assert!(list.contains("{{baseUrl}}/v2/list"), "{list}");
+    assert!(list.contains("toBe(299)"), "{list}");
+    assert!(temp.path().join("Acme/New.postino").is_file());
+    assert!(!temp.path().join("Acme/Old.postino").exists());
 }

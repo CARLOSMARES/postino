@@ -55,3 +55,6 @@ Postman uses the import wizard of OpenAPI (`state/openapi_import.rs`, `views/ope
 code path. The request key is `<folders>/<METHOD> <name>`, ` #2` when two collide, and the manifest
 source is `kind = "postman"`, `location = <info._postman_id>`. The report is written by the wizard
 to `.postino/import-report.md`.
+
+An export whose id is already in the destination's manifests turns the Preview into the update of
+`docs/openapi-import.md` (`diff_plan`, `Workspace::update_openapi`).

@@ -39,6 +39,9 @@ description: Import Postman collections (v2.1 and v2.0), environment and globals
 <h3>The report</h3>
 <p>When some request needs a look, the last screen says how many and <strong>View report</strong> opens <code>.postino/import-report.md</code>, in the workspace: each request with what to review, and the warnings of the import. The next import replaces it. A workspace created by Postino keeps it out of Git.</p>
 
+<h2>Updating an imported collection</h2>
+<p>Postman exports carry an id, <code>info._postman_id</code>. A new export of a collection already imported into the destination is recognized by it, wherever the file is: the Preview step offers <strong>Update existing</strong> or <strong>Import as new collection</strong>. Use the wizard as usual, or the command palette's <strong>Update collection from Postman…</strong>. The list is the one of an <a href="openapi-import.html#updating-an-imported-collection">OpenAPI update</a>: added, changed with what changed, and removed, with a checkbox for each. Changed requests keep their scripts, tests and the values you edited. Environments are left as they are. A small <code>.openapi.toml</code> in the collection folder remembers the import. Pasted text works too, since the id comes in the export. Several collections imported together have no single id and are not updated this way.</p>
+
 <h2>Collections</h2>
 <p>The collection becomes a new folder at the root of the workspace, named after it. If a folder with that name exists, the new one gets a <code>(2)</code>, <code>(3)</code> suffix, so nothing is ever overwritten. Postman folders become subfolders, and each request becomes a <code>.postino</code> file.</p>
 <div class="table"><table>

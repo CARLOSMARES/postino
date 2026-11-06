@@ -380,7 +380,9 @@ fn action_icon(action: ActionId) -> gpui_kit::assets::IconName {
         ActionId::NewFolder => Lucide::FolderPlus,
         ActionId::ImportOpenApi => Lucide::FileCode,
         ActionId::ImportOpenApiUrl => Lucide::Link,
-        ActionId::ImportCollection | ActionId::ImportEnvironment => Lucide::Download,
+        ActionId::ImportCollection | ActionId::ImportEnvironment | ActionId::UpdateFromPostman => {
+            Lucide::Download
+        }
         ActionId::OpenSettings => Lucide::Settings,
         ActionId::OpenShortcuts => Lucide::Keyboard,
         ActionId::NewWorkspace => Lucide::FolderPlus,
@@ -466,7 +468,7 @@ fn execute_action(weak: WeakEntity<AppView>, action: ActionId, window: &mut Wind
         ActionId::ImportCollection => {
             super::openapi_import::open_postman_wizard(weak, window, cx);
         }
-        ActionId::ImportEnvironment => {
+        ActionId::ImportEnvironment | ActionId::UpdateFromPostman => {
             super::openapi_import::open_postman_wizard(weak, window, cx);
         }
         ActionId::OpenSettings => {
