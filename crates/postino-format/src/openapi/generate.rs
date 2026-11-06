@@ -202,7 +202,7 @@ pub fn build_plan(
             if !origins.iter().any(|(known, _)| *known == origin) {
                 let mut label = environment_label(origin, &server.description);
                 if origins.iter().any(|(_, known)| *known == label) {
-                    label = origin.to_string();
+                    label = origin_host(origin).to_string();
                 }
                 origins.push((origin.to_string(), label));
             }
@@ -292,7 +292,7 @@ pub fn build_plan(
         for (origin, label) in origins {
             environments.push(PlanEnvironment {
                 name: if several {
-                    format!("{collection_name} {label}")
+                    label
                 } else {
                     collection_name.to_string()
                 },
@@ -335,10 +335,12 @@ fn environment_label(origin: &str, description: &str) -> String {
     if !description.is_empty() && description.chars().count() <= MAX_ENVIRONMENT_LABEL {
         return description.to_string();
     }
-    origin
-        .split_once("://")
-        .map_or(origin, |(_, host)| host)
-        .to_string()
+    origin_host(origin).to_string()
+}
+
+/// The host of a server origin: `https://api.acme.dev` gives `api.acme.dev`.
+fn origin_host(origin: &str) -> &str {
+    origin.split_once("://").map_or(origin, |(_, host)| host)
 }
 
 /// A security scheme name made into a variable name: letters, digits and `_` only.
@@ -796,12 +798,12 @@ paths:
             plan.environments,
             vec![
                 PlanEnvironment {
-                    name: "Acme Payments API production".into(),
+                    name: "production".into(),
                     base: vec![KeyValue::new("baseUrl", "https://api.acme.dev")],
                     secret: secrets.clone(),
                 },
                 PlanEnvironment {
-                    name: "Acme Payments API staging".into(),
+                    name: "staging".into(),
                     base: vec![KeyValue::new("baseUrl", "https://staging.acme.dev")],
                     secret: secrets,
                 },

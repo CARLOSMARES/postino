@@ -23,7 +23,9 @@ use postino_workspace::EnvLayer;
 
 use crate::state::define_variable;
 use crate::state::env_color::env_color;
-use crate::state::env_edit::{EnvEditTab, EnvScope, EnvValidationError, EnvVarRow, RowNote};
+use crate::state::env_edit::{
+    EnvEditTab, EnvScope, EnvValidationError, EnvVarRow, RowNote, env_file_label,
+};
 use crate::state::number::format_integer;
 use crate::state::workspace_log::log_workspace_error;
 use crate::theme::metrics::{
@@ -44,6 +46,10 @@ use super::root::AppView;
 const NAME_COLUMN_WIDTH: f32 = 200.0;
 /// Width of the Stored in column.
 const STORED_COLUMN_WIDTH: f32 = 190.0;
+/// Longest file name, in characters, that fits in a "stored in" chip of that column.
+const STORED_CHIP_MAX_CHARS: usize = 22;
+/// Longest file name, in characters, of the chip's menu.
+const STORED_MENU_MAX_CHARS: usize = 64;
 /// Width of the trash column.
 const TRASH_COLUMN_WIDTH: f32 = 30.0;
 /// Height of the toolbar and header controls.
@@ -877,12 +883,14 @@ fn render_header(
                 )
                 .child(
                     div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
                         .text_size(px(17.0))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(palette.fg)
                         .child(name.clone()),
                 )
-                .child(div().flex_1())
                 .child(use_button)
                 .child(more),
         )
@@ -926,6 +934,8 @@ fn file_chip(
 ) -> AnyElement {
     let mono_font = cx.theme().mono_font_family.clone();
     h_flex()
+        .max_w_full()
+        .min_w_0()
         .items_center()
         .gap(px(6.0))
         .h(px(22.0))
@@ -939,10 +949,18 @@ fn file_chip(
         } else {
             palette.fg_subtle
         })
-        .child(Icon::new(icon).with_size(px(11.0)))
-        .child(div().font_family(mono_font).text_size(px(11.5)).child(path))
+        .child(Icon::new(icon).with_size(px(11.0)).flex_none())
         .child(
             div()
+                .min_w_0()
+                .truncate()
+                .font_family(mono_font)
+                .text_size(px(11.5))
+                .child(path),
+        )
+        .child(
+            div()
+                .flex_none()
                 .text_size(px(11.5))
                 .text_color(palette.fg_subtle)
                 .child(format!("\u{b7} {note}")),
@@ -1224,8 +1242,14 @@ fn file_row(
     });
     let (chip_bg, chip_fg) = chip_colors(Some(row.layer), palette);
     let (chip_icon, chip_file) = match row.layer {
-        EnvLayer::Base => (IconName::File, format!("{}.env", edit.name)),
-        EnvLayer::Local => (IconName::Lock, format!("{}.local.env", edit.name)),
+        EnvLayer::Base => (
+            IconName::File,
+            env_file_label(&edit.name, ".env", STORED_CHIP_MAX_CHARS),
+        ),
+        EnvLayer::Local => (
+            IconName::Lock,
+            env_file_label(&edit.name, ".local.env", STORED_CHIP_MAX_CHARS),
+        ),
     };
     let current = row.layer;
     let picker = chip_button(
@@ -1245,8 +1269,14 @@ fn file_row(
         let name = edit.name.clone();
         move |mut menu, _, _| {
             for (layer, file) in [
-                (EnvLayer::Base, format!("{name}.env")),
-                (EnvLayer::Local, format!("{name}.local.env")),
+                (
+                    EnvLayer::Base,
+                    env_file_label(&name, ".env", STORED_MENU_MAX_CHARS),
+                ),
+                (
+                    EnvLayer::Local,
+                    env_file_label(&name, ".local.env", STORED_MENU_MAX_CHARS),
+                ),
             ] {
                 let weak = weak.clone();
                 let tab_id = tab_id.clone();

@@ -12,6 +12,20 @@ use postino_core::KeyValue;
 use postino_workspace::{EnvChange, EnvLayer, EnvLayers};
 use rust_i18n::t;
 
+/// The file name of the environment `name` with `extension` (`.env`, `.local.env`), at most `max`
+/// characters. A longer name is cut in its middle: the extension tells the two files apart, so it
+/// always stays.
+pub fn env_file_label(name: &str, extension: &str, max: usize) -> String {
+    let count = name.chars().count();
+    let room = max.saturating_sub(extension.chars().count() + 1);
+    if count + extension.chars().count() <= max || room == 0 {
+        return format!("{name}{extension}");
+    }
+    let start: String = name.chars().take(room - room / 2).collect();
+    let end: String = name.chars().skip(count - room / 2).collect();
+    format!("{start}\u{2026}{end}{extension}")
+}
+
 /// The id of the document tab editing the environment `name`. Prefixed so it can never collide
 /// with a request id (a workspace path) or a load test id.
 pub fn tab_id(name: &str) -> String {
@@ -461,6 +475,15 @@ impl EnvEditTab {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_file_labels_keep_the_extension() {
+        assert_eq!(env_file_label("local", ".env", 22), "local.env");
+        let long = "Acme Payments Platform production";
+        let label = env_file_label(long, ".local.env", 22);
+        assert_eq!(label.chars().count(), 22);
+        assert_eq!(label, "Acme P\u{2026}ction.local.env");
+    }
     use pretty_assertions::assert_eq;
 
     fn layers(base: &[(&str, &str)], local: Option<&[(&str, &str)]>) -> EnvLayers {

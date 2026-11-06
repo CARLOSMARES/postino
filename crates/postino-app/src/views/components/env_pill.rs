@@ -19,6 +19,12 @@ use crate::state::env_color::env_color;
 use crate::theme::metrics::{ENV_PILL_HEIGHT, MENU_DOT_COLUMN_WIDTH, MENU_ROW_HEIGHT, RADIUS_MD};
 use crate::theme::{PaletteExt, PostinoColors};
 
+/// Widest the active environment's name gets on the pill, so a long one does not reach the search
+/// box. Longer names are cut.
+const TRIGGER_LABEL_MAX_WIDTH: f32 = 110.0;
+/// Widest an environment's name gets in the dropdown.
+const MENU_LABEL_MAX_WIDTH: f32 = 360.0;
+
 /// One row of an [`EnvPill`]'s dropdown: `None` is "No environment" (a hollow ring), `Some(name)`
 /// is a named environment (a dot colored by [`env_color`]).
 pub struct EnvMenuItem {
@@ -124,7 +130,12 @@ impl RenderOnce for EnvPill {
             .rounded(px(RADIUS_MD - 1.0))
             .border_1()
             .child(trigger_dot_or_ring)
-            .child(trigger_label)
+            .child(
+                div()
+                    .max_w(px(TRIGGER_LABEL_MAX_WIDTH))
+                    .truncate()
+                    .child(trigger_label),
+            )
             .dropdown_caret(true)
             .dropdown_menu(move |mut menu, _, _| {
                 for item in &self.items {
@@ -170,7 +181,14 @@ impl RenderOnce for EnvPill {
                             .px_2()
                             .w_full()
                             .child(leading)
-                            .child(div().flex_1().child(label.clone()))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .max_w(px(MENU_LABEL_MAX_WIDTH))
+                                    .truncate()
+                                    .child(label.clone()),
+                            )
                             .when_some(shortcut.clone(), |row, shortcut| {
                                 row.child(
                                     div()
