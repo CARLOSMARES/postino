@@ -386,7 +386,19 @@ fn render_header(
                             }
                         }),
                 )
-                .child(import_menu),
+                .child(import_menu)
+                .child(
+                    IconButton::new("refresh-collections", IconName::RefreshCw)
+                        .box_size(ICON_BUTTON_HEADER)
+                        .tooltip(t!("shell.sidebar.refresh"))
+                        .disabled(!has_workspace)
+                        .on_click({
+                            let weak = weak.clone();
+                            move |_, _, cx| {
+                                let _ = weak.update(cx, |view, cx| view.refresh_collections(cx));
+                            }
+                        }),
+                ),
         )
 }
 

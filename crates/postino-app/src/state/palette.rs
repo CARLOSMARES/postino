@@ -83,6 +83,8 @@ pub enum ActionId {
     NewRequest,
     /// Starts creating a new folder.
     NewFolder,
+    /// Reads the workspace from disk again (#219).
+    RefreshCollections,
     /// Opens the import wizard for OpenAPI, on its File source.
     ImportOpenApi,
     /// Opens the import wizard for OpenAPI, on its URL source.
@@ -242,6 +244,11 @@ pub fn action_items() -> Vec<PaletteItem> {
         ),
         action_item(ActionId::NewRequest, t!("common.new_request"), None),
         action_item(ActionId::NewFolder, t!("common.new_folder"), None),
+        action_item(
+            ActionId::RefreshCollections,
+            t!("shell.sidebar.refresh"),
+            None,
+        ),
         action_item(
             ActionId::ImportOpenApi,
             t!("openapi.palette.import"),
@@ -504,7 +511,7 @@ mod tests {
     #[test]
     fn action_items_cover_every_action_id() {
         let items = action_items();
-        assert_eq!(items.len(), 17);
+        assert_eq!(items.len(), 18);
         assert!(
             items
                 .iter()

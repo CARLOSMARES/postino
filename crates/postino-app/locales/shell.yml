@@ -85,6 +85,11 @@ _version: 2
   es: "Colecciones"
   gl: "Coleccións"
   it: "Raccolte"
+"shell.sidebar.refresh":
+  en: "Refresh collections"
+  es: "Actualizar colecciones"
+  gl: "Actualizar coleccións"
+  it: "Aggiorna raccolte"
 "shell.sidebar.broken":
   en: "%{name} (broken)"
   es: "%{name} (dañada)"

@@ -767,6 +767,17 @@ impl AppView {
         self.refresh_environments();
     }
 
+    /// The sidebar's refresh button and the palette's "Refresh collections" (#219): shows the
+    /// changes made outside Postino (a pull in a terminal, files copied in by hand).
+    pub(crate) fn refresh_collections(&mut self, cx: &mut Context<Self>) {
+        if self.state.workspace.is_none() {
+            return;
+        }
+        log::info!("refreshing the workspace from disk");
+        self.reload_workspace_from_disk("a refresh", cx);
+        cx.notify();
+    }
+
     /// Rebuilds the sidebar tree from the workspace's current on-disk state, respecting the
     /// sidebar filter's current text. Call after any operation that changes the workspace (save,
     /// create, rename, delete).

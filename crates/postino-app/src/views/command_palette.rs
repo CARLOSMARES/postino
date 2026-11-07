@@ -378,6 +378,7 @@ fn action_icon(action: ActionId) -> gpui_kit::assets::IconName {
         ActionId::Save => Lucide::Save,
         ActionId::NewRequest => Lucide::Plus,
         ActionId::NewFolder => Lucide::FolderPlus,
+        ActionId::RefreshCollections => Lucide::RefreshCw,
         ActionId::ImportOpenApi => Lucide::FileCode,
         ActionId::ImportOpenApiUrl => Lucide::Link,
         ActionId::ImportCollection | ActionId::ImportEnvironment | ActionId::UpdateFromPostman => {
@@ -459,6 +460,9 @@ fn execute_action(weak: WeakEntity<AppView>, action: ActionId, window: &mut Wind
         }
         ActionId::NewRequest => sidebar::open_new_request_dialog(weak, None, window, cx),
         ActionId::NewFolder => sidebar::open_new_folder_dialog(weak, None, window, cx),
+        ActionId::RefreshCollections => {
+            let _ = weak.update(cx, |view, cx| view.refresh_collections(cx));
+        }
         ActionId::ImportOpenApi => {
             super::openapi_import::open_openapi_wizard(weak, SourceKind::File, window, cx);
         }

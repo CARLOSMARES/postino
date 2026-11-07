@@ -35,7 +35,7 @@ description: A tour of the Postino window: title bar, activity rail, sidebar, ta
 
 <h2>Sidebar</h2>
 <h3>Collections</h3>
-<p>The header has buttons to create a <strong>new request</strong> and a <strong>new folder</strong> at the root of the workspace, and the <strong>Import</strong> menu for Postman files. Below it, a <strong>Filter</strong> box narrows the tree as you type: it matches request names and paths, ignores case, and keeps the parent folders of every match visible.</p>
+<p>The header has buttons to create a <strong>new request</strong> and a <strong>new folder</strong> at the root of the workspace, the <strong>Import</strong> menu for Postman files, and <strong>Refresh collections</strong>, which reads the workspace from disk again to show changes made outside Postino, such as a <code>git pull</code> in a terminal or files copied in by hand. Postino does not watch the folder, so those changes appear only after a refresh. Below it, a <strong>Filter</strong> box narrows the tree as you type: it matches request names and paths, ignores case, and keeps the parent folders of every match visible.</p>
 <p>Each request shows its method in color. Folders come first, then requests, both in natural order, so <code>item2</code> sorts before <code>item10</code>. Right click an entry for its context menu:</p>
 <div class="table"><table>
     <thead><tr><th>Action</th><th>On a folder</th><th>On a request</th></tr></thead>
@@ -154,7 +154,7 @@ description: A tour of the Postino window: title bar, activity rail, sidebar, ta
     <dt>Environments</dt>
     <dd><strong>No environment</strong> and every environment, with their shortcuts. Choosing one makes it active.</dd>
     <dt>Actions</dt>
-    <dd>Send request, Save, New request, New folder, Import Postman collection…, Import Postman environment…, Update collection from Postman…, Open Settings, Keyboard shortcuts, New workspace…, Open folder…, Show welcome, Show what's new, New load test, Toggle theme and, in builds with an updater, Check for updates. When the workspace is in a git repository it also lists the <a href="git.html#git-palette">Git actions</a>, such as <strong>Git: Commit</strong> and <strong>Git: Show log</strong>.</dd>
+    <dd>Send request, Save, New request, New folder, Refresh collections, Import Postman collection…, Import Postman environment…, Update collection from Postman…, Open Settings, Keyboard shortcuts, New workspace…, Open folder…, Show welcome, Show what's new, New load test, Toggle theme and, in builds with an updater, Check for updates. When the workspace is in a git repository it also lists the <a href="git.html#git-palette">Git actions</a>, such as <strong>Git: Commit</strong> and <strong>Git: Show log</strong>.</dd>
 </dl>
 
 <h2>Keyboard shortcuts cheat sheet</h2>
