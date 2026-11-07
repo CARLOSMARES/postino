@@ -18,6 +18,13 @@ fn delete_line_keys() -> &'static [&'static str] {
 
 /// The modifier of the shortcuts that open and close the sidebar panels, matching `main.rs`:
 /// `Ctrl` on macOS, where Option + a digit types characters, `Alt` elsewhere.
+/// The modifier that moves an environment up or down, matching `main.rs`'s `alt-up`: `Option`
+/// on macOS, `Alt` elsewhere.
+#[cfg(target_os = "macos")]
+const MOVE_MODIFIER_KEY: &str = "Option";
+#[cfg(not(target_os = "macos"))]
+const MOVE_MODIFIER_KEY: &str = "Alt";
+
 #[cfg(target_os = "macos")]
 const PANEL_MODIFIER_KEY: &str = "Ctrl";
 #[cfg(not(target_os = "macos"))]
@@ -93,6 +100,10 @@ pub fn groups() -> Vec<ShortcutGroup> {
                     &[modifier, "1-9"],
                 ),
                 Shortcut::new(t!("shortcuts.action.no_environment"), &[modifier, "0"]),
+                Shortcut::new(
+                    t!("shortcuts.action.move_environment"),
+                    &[MOVE_MODIFIER_KEY, "\u{2191}/\u{2193}"],
+                ),
             ],
         },
         ShortcutGroup {

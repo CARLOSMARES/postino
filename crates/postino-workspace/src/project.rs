@@ -43,7 +43,30 @@ fn write(path: &Path, config: &ProjectConfig) -> Result<(), WorkspaceError> {
     atomic_write(path, &config.to_toml())
 }
 
+/// Reorders `names` (already in natural order): the ones in `order` first, in its order, then
+/// the rest in their current order. Names in `order` that are not in `names` are ignored, and so
+/// is a name repeated in `order`.
+pub(crate) fn apply_order(names: Vec<String>, order: &[String]) -> Vec<String> {
+    let mut sorted: Vec<String> = Vec::with_capacity(names.len());
+    for name in order {
+        if names.contains(name) && !sorted.contains(name) {
+            sorted.push(name.clone());
+        }
+    }
+    sorted.extend(names.into_iter().filter(|name| !order.contains(name)));
+    sorted
+}
+
 impl Workspace {
+    /// Saves `names` as the order of the environments in `.postino/project.toml`, creating the
+    /// file when it does not exist. [`Workspace::list_environments`] returns them in this order
+    /// from now on, with any environment not in `names` after them.
+    pub fn set_environment_order(&self, names: &[String]) -> Result<(), WorkspaceError> {
+        self.update_project(ProjectWrite::Create, |config| {
+            config.set_environment_order(names);
+        })
+    }
+
     /// The workspace configuration. A missing file is the default configuration, never an error;
     /// a file that is not valid TOML is [`WorkspaceError::Project`].
     pub fn load_project(&self) -> Result<ProjectConfig, WorkspaceError> {
@@ -185,6 +208,56 @@ mod tests {
         fs::write(workspace.project_path(), "[environments\n").expect("write");
         workspace.rename_environment("dev", "qa").expect("rename");
         assert_eq!(workspace.list_environments().expect("list"), vec!["qa"]);
+    }
+
+    fn strings(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| name.to_string()).collect()
+    }
+
+    #[test]
+    fn apply_order_puts_listed_names_first_and_keeps_the_rest_in_order() {
+        let names = strings(&["dev", "local", "prod", "staging"]);
+        assert_eq!(
+            apply_order(names, &strings(&["local", "gone", "prod", "local"])),
+            strings(&["local", "prod", "dev", "staging"])
+        );
+        let names = strings(&["dev", "local"]);
+        assert_eq!(apply_order(names.clone(), &[]), names);
+    }
+
+    #[test]
+    fn the_environment_list_follows_the_saved_order() {
+        let (_dir, workspace) = workspace();
+        for name in ["dev", "local", "prod", "staging"] {
+            workspace.create_environment(name).expect("create");
+        }
+        assert_eq!(
+            workspace.list_environments().expect("list"),
+            strings(&["dev", "local", "prod", "staging"])
+        );
+        assert!(!workspace.project_path().exists());
+
+        workspace
+            .set_environment_order(&strings(&["local", "dev", "staging", "prod"]))
+            .expect("order");
+        workspace.create_environment("qa").expect("create qa");
+        assert_eq!(
+            workspace.list_environments().expect("list"),
+            strings(&["local", "dev", "staging", "prod", "qa"])
+        );
+    }
+
+    #[test]
+    fn a_broken_file_leaves_the_natural_order() {
+        let (_dir, workspace) = workspace();
+        workspace.create_environment("prod").expect("create");
+        workspace.create_environment("dev").expect("create");
+        fs::create_dir_all(workspace.project_path().parent().expect("parent")).expect("mkdir");
+        fs::write(workspace.project_path(), "[environments\n").expect("write");
+        assert_eq!(
+            workspace.list_environments().expect("list"),
+            strings(&["dev", "prod"])
+        );
     }
 
     #[test]

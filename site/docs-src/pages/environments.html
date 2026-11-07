@@ -66,7 +66,7 @@ apiKey=sk_test_51H...
 <h2>Switching environments</h2>
 <ul>
     <li>Click the environment pill in the title bar and choose one, or <strong>No environment</strong>.</li>
-    <li>Press <kbd>Ctrl</kbd> <kbd>1</kbd> to <kbd>Ctrl</kbd> <kbd>9</kbd> (<kbd>⌘</kbd> on macOS) for the first nine environments in alphabetical order, and <kbd>Ctrl</kbd> <kbd>0</kbd> for no environment.</li>
+    <li>Press <kbd>Ctrl</kbd> <kbd>1</kbd> to <kbd>Ctrl</kbd> <kbd>9</kbd> (<kbd>⌘</kbd> on macOS) for the first nine environments, in the <a href="#order">order of the list</a>, and <kbd>Ctrl</kbd> <kbd>0</kbd> for no environment.</li>
     <li>Use the <strong>Environments</strong> group of the command palette.</li>
     <li>In the Environments panel, or in an environment's editor, choose <strong>Use this environment</strong>.</li>
 </ul>
@@ -114,10 +114,15 @@ apiKey=sk_test_51H...
 <h3>Environment actions</h3>
 <p>The <strong>More actions</strong> menu of the editor has:</p>
 <ul>
+    <li><strong>Move up</strong> and <strong>Move down</strong>, which move the environment one place in the <a href="#order">order</a>. <kbd>Alt</kbd> <kbd>↑</kbd> and <kbd>Alt</kbd> <kbd>↓</kbd> (<kbd>⌥</kbd> on macOS) do the same while the environment's tab is the active one.</li>
     <li><strong>Rename</strong>, which renames both files.</li>
     <li><strong>Reveal in file manager</strong>, which opens the <code>environments/</code> folder.</li>
     <li><strong>Delete</strong>, which removes both <code>.env</code> and <code>.local.env</code> after asking. It cannot be undone.</li>
 </ul>
+
+<h2 id="order">Order</h2>
+<p>Environments are listed in alphabetical order until you change it. Drag an environment in the Environments panel by the grip that appears at the left of its row when you point at it: a line shows where it lands. Drop it on <strong>No environment</strong> to make it the first, or below the list to make it the last. <strong>No environment</strong> always stays at the top.</p>
+<p>The order applies everywhere environments are listed: the panel, the environment picker of the title bar, the command palette and the <kbd>Ctrl</kbd> <kbd>1</kbd> to <kbd>Ctrl</kbd> <kbd>9</kbd> shortcuts. It is saved in the <a href="files-and-folders.html#project-file">workspace configuration</a>, <code>.postino/project.toml</code>, so it is shared with everyone who uses the workspace through git. The file is created the first time you reorder. An environment that is not in the saved order, such as a new one, goes after the others, in alphabetical order.</p>
 
 <h2>Creating an environment</h2>
 <ol class="steps">

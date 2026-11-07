@@ -24,12 +24,12 @@ use postino_script::QuickJsEngine;
 use postino_workspace::{Workspace, WorkspaceError};
 
 use crate::actions::{
-    CloseActiveTab, DeleteSelectedEntry, ImportOpenApi, NextTab, OpenCommandPalette, OpenSettings,
-    OpenShortcuts, OpenWorkspace, PreviousTab, RenameSelectedEntry, SaveActiveTab,
-    SelectEnvironment1, SelectEnvironment2, SelectEnvironment3, SelectEnvironment4,
-    SelectEnvironment5, SelectEnvironment6, SelectEnvironment7, SelectEnvironment8,
-    SelectEnvironment9, SelectNoEnvironment, SendActiveTab, ToggleCollections, ToggleEnvironments,
-    ToggleLoadTests, ToggleSourceControl,
+    CloseActiveTab, DeleteSelectedEntry, ImportOpenApi, MoveEnvironmentDown, MoveEnvironmentUp,
+    NextTab, OpenCommandPalette, OpenSettings, OpenShortcuts, OpenWorkspace, PreviousTab,
+    RenameSelectedEntry, SaveActiveTab, SelectEnvironment1, SelectEnvironment2, SelectEnvironment3,
+    SelectEnvironment4, SelectEnvironment5, SelectEnvironment6, SelectEnvironment7,
+    SelectEnvironment8, SelectEnvironment9, SelectNoEnvironment, SendActiveTab, ToggleCollections,
+    ToggleEnvironments, ToggleLoadTests, ToggleSourceControl,
 };
 use crate::state::about::AboutInfo;
 use crate::state::debug_open::{self, DebugOpenTarget};
@@ -1475,6 +1475,40 @@ impl AppView {
         self.select_environment_by_shortcut(9, cx);
     }
 
+    /// `Alt Up`: moves the environment of the active environment tab one place up (#216).
+    fn on_move_environment_up(
+        &mut self,
+        _: &MoveEnvironmentUp,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(name) = self
+            .state
+            .tabs
+            .active_environment_name()
+            .map(str::to_string)
+        {
+            self.move_environment(&name, true, cx);
+        }
+    }
+
+    /// `Alt Down`: moves the environment of the active environment tab one place down.
+    fn on_move_environment_down(
+        &mut self,
+        _: &MoveEnvironmentDown,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(name) = self
+            .state
+            .tabs
+            .active_environment_name()
+            .map(str::to_string)
+        {
+            self.move_environment(&name, false, cx);
+        }
+    }
+
     /// Handles the `Ctrl 0` / `Cmd 0` key binding ("No environment").
     fn on_select_no_environment(
         &mut self,
@@ -1871,6 +1905,8 @@ impl Render for AppView {
             .on_action(cx.listener(Self::on_select_environment_8))
             .on_action(cx.listener(Self::on_select_environment_9))
             .on_action(cx.listener(Self::on_select_no_environment))
+            .on_action(cx.listener(Self::on_move_environment_up))
+            .on_action(cx.listener(Self::on_move_environment_down))
             .on_action(cx.listener(Self::on_toggle_collections))
             .on_action(cx.listener(Self::on_toggle_source_control))
             .on_action(cx.listener(Self::on_toggle_environments))

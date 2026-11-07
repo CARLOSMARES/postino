@@ -1,6 +1,8 @@
 //! Plain data behind the sidebar's Environments panel (GitHub #64): one row per environment of
 //! the workspace with its color category and variable count. Loading every environment is file
 //! IO, so [`load_env_rows`] runs when the workspace or an environment changes, never in render.
+//! Dragging a row, or "Move up" and "Move down", reorder the environments ([`moved_order`],
+//! [`moved_by`], #216).
 
 use postino_workspace::Workspace;
 
@@ -36,12 +38,95 @@ pub fn load_env_rows(workspace: &Workspace) -> Vec<EnvRow> {
         .collect()
 }
 
+/// The environment order after dragging the one at `from` onto the row at `to` (past the end
+/// for the end of the list), which it replaces: the rows in between shift by one, like tabs.
+/// `None` when nothing moves.
+pub fn moved_order(names: &[String], from: usize, to: usize) -> Option<Vec<String>> {
+    if from >= names.len() {
+        return None;
+    }
+    let to = to.min(names.len() - 1);
+    if from == to {
+        return None;
+    }
+    let mut order = names.to_vec();
+    let name = order.remove(from);
+    order.insert(to, name);
+    Some(order)
+}
+
+/// The environment order after moving `name` one place up (`up`) or down. `None` when it is
+/// already first or last, or not in `names`.
+pub fn moved_by(names: &[String], name: &str, up: bool) -> Option<Vec<String>> {
+    let from = names.iter().position(|entry| entry == name)?;
+    let to = if up { from.checked_sub(1)? } else { from + 1 };
+    if to >= names.len() {
+        return None;
+    }
+    moved_order(names, from, to)
+}
+
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use postino_workspace::{EnvChange, EnvLayer};
     use pretty_assertions::assert_eq;
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|name| name.to_string()).collect()
+    }
+
+    #[test]
+    fn moved_order_moves_up_and_down() {
+        let list = names(&["dev", "local", "prod"]);
+        assert_eq!(
+            moved_order(&list, 1, 0),
+            Some(names(&["local", "dev", "prod"]))
+        );
+        assert_eq!(
+            moved_order(&list, 0, 2),
+            Some(names(&["local", "prod", "dev"]))
+        );
+        assert_eq!(
+            moved_order(&list, 2, 0),
+            Some(names(&["prod", "dev", "local"]))
+        );
+    }
+
+    #[test]
+    fn moved_order_past_the_end_moves_to_the_last_place() {
+        let list = names(&["dev", "local", "prod"]);
+        assert_eq!(
+            moved_order(&list, 0, usize::MAX),
+            Some(names(&["local", "prod", "dev"]))
+        );
+    }
+
+    #[test]
+    fn moved_order_is_none_when_nothing_moves() {
+        let list = names(&["dev", "local"]);
+        assert_eq!(moved_order(&list, 1, 1), None);
+        assert_eq!(moved_order(&list, 1, usize::MAX), None);
+        assert_eq!(moved_order(&list, 5, 0), None);
+        assert_eq!(moved_order(&[], 0, 0), None);
+    }
+
+    #[test]
+    fn moved_by_swaps_with_the_neighbor_and_stops_at_the_ends() {
+        let list = names(&["dev", "local", "prod"]);
+        assert_eq!(
+            moved_by(&list, "local", true),
+            Some(names(&["local", "dev", "prod"]))
+        );
+        assert_eq!(
+            moved_by(&list, "local", false),
+            Some(names(&["dev", "prod", "local"]))
+        );
+        assert_eq!(moved_by(&list, "dev", true), None);
+        assert_eq!(moved_by(&list, "prod", false), None);
+        assert_eq!(moved_by(&list, "gone", true), None);
+    }
 
     #[test]
     fn rows_carry_color_and_merged_variable_count() {

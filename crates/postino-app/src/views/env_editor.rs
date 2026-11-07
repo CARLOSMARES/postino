@@ -685,6 +685,12 @@ impl AppView {
             };
             workspace.environment_path(&edit.name, layer)
         });
+        // Where "Move up" and "Move down" can go, from the panel's order.
+        let position = self.env_rows.iter().position(|row| row.name == edit.name);
+        let moves = EnvMoves {
+            up: position.is_some_and(|position| position > 0),
+            down: position.is_some_and(|position| position + 1 < self.env_rows.len()),
+        };
         let session: Vec<KeyValue> = if is_active {
             self.state.session_env.as_slice().to_vec()
         } else {
@@ -698,6 +704,7 @@ impl AppView {
                 edit,
                 reveal_path,
                 is_active,
+                moves,
                 &weak,
                 &palette,
                 cx,
@@ -792,11 +799,20 @@ fn build_row_inputs(
     }
 }
 
+/// Whether the environment of a tab can move up or down in the order (#216).
+#[derive(Clone, Copy)]
+struct EnvMoves {
+    up: bool,
+    down: bool,
+}
+
 /// The header: color dot, name, "Use this environment", the "..." menu and the two file chips.
+#[allow(clippy::too_many_arguments)]
 fn render_header(
     edit: &EnvEditTab,
     reveal_path: Option<PathBuf>,
     is_active: bool,
+    moves: EnvMoves,
     weak: &WeakEntity<AppView>,
     palette: &Palette,
     cx: &mut Context<AppView>,
@@ -859,7 +875,25 @@ fn render_header(
                             .update(cx, |view, cx| view.open_env_delete_dialog(name, window, cx));
                     })
                 };
-                menu.item(rename).item(reveal).separator().item(delete)
+                let move_item = |label: &str, up: bool, enabled: bool| {
+                    let weak = weak.clone();
+                    let name = name.clone();
+                    PopupMenuItem::new(label.to_string())
+                        .disabled(!enabled)
+                        .on_click(move |_, _, cx| {
+                            let _ =
+                                weak.update(cx, |view, cx| view.move_environment(&name, up, cx));
+                        })
+                };
+                let move_up = move_item(&t!("environments.menu.move_up"), true, moves.up);
+                let move_down = move_item(&t!("environments.menu.move_down"), false, moves.down);
+                menu.item(move_up)
+                    .item(move_down)
+                    .separator()
+                    .item(rename)
+                    .item(reveal)
+                    .separator()
+                    .item(delete)
             }
         });
 

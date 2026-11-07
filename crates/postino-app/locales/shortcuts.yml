@@ -80,6 +80,11 @@ _version: 2
   es: "Sin entorno"
   gl: "Sen contorno"
   it: "Nessun ambiente"
+"shortcuts.action.move_environment":
+  en: "Move the environment up or down"
+  es: "Subir o bajar el entorno"
+  gl: "Subir ou baixar o contorno"
+  it: "Sposta l'ambiente su o giù"
 "shortcuts.action.rename":
   en: "Rename the selected request or folder"
   es: "Renombrar la petición o carpeta seleccionada"

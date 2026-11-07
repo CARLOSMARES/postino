@@ -23,13 +23,13 @@ use telaio_app::{logging, window};
 
 use actions::{
     CloseActiveTab, CommitFromMessage, ConfirmCompletion, CopyLoadTestSummary, DeleteLine,
-    DeleteSelectedEntry, DismissCompletion, ImportOpenApi, NextCompletion, NextTab,
-    OpenCommandPalette, OpenSettings, OpenShortcuts, OpenWorkspace, PreviousCompletion,
-    PreviousTab, RedoRequestEdit, RenameSelectedEntry, SaveActiveTab, SelectEnvironment1,
-    SelectEnvironment2, SelectEnvironment3, SelectEnvironment4, SelectEnvironment5,
-    SelectEnvironment6, SelectEnvironment7, SelectEnvironment8, SelectEnvironment9,
-    SelectNoEnvironment, SendActiveTab, ShowCompletion, ToggleCollections, ToggleEnvironments,
-    ToggleLoadTests, ToggleSourceControl, UndoRequestEdit,
+    DeleteSelectedEntry, DismissCompletion, ImportOpenApi, MoveEnvironmentDown, MoveEnvironmentUp,
+    NextCompletion, NextTab, OpenCommandPalette, OpenSettings, OpenShortcuts, OpenWorkspace,
+    PreviousCompletion, PreviousTab, RedoRequestEdit, RenameSelectedEntry, SaveActiveTab,
+    SelectEnvironment1, SelectEnvironment2, SelectEnvironment3, SelectEnvironment4,
+    SelectEnvironment5, SelectEnvironment6, SelectEnvironment7, SelectEnvironment8,
+    SelectEnvironment9, SelectNoEnvironment, SendActiveTab, ShowCompletion, ToggleCollections,
+    ToggleEnvironments, ToggleLoadTests, ToggleSourceControl, UndoRequestEdit,
 };
 use state::settings::ThemeChoice;
 use state::window::WindowState;
@@ -345,6 +345,12 @@ fn bind_keys(cx: &mut App) {
         OpenShortcuts,
         None,
     )]);
+    // Alt+Up / Alt+Down (Option on macOS) move the environment of the active environment tab
+    // (#216). Text inputs that bind them themselves run first.
+    cx.bind_keys([
+        KeyBinding::new("alt-up", MoveEnvironmentUp, None),
+        KeyBinding::new("alt-down", MoveEnvironmentDown, None),
+    ]);
     // Ctrl+Tab is the tab switcher on every platform, macOS included. The text inputs only bind
     // plain `tab` / `shift-tab` (indent and outdent), so this still fires while one has focus.
     cx.bind_keys([

@@ -37,6 +37,10 @@ actions!(
         SelectEnvironment9,
         /// Selects "No environment" (`Ctrl 0` / `Cmd 0`).
         SelectNoEnvironment,
+        /// Moves the environment of the active environment tab one place up (`Alt Up`, #216).
+        MoveEnvironmentUp,
+        /// Moves the environment of the active environment tab one place down (`Alt Down`).
+        MoveEnvironmentDown,
         /// Opens or closes the Collections panel, like its rail button (`Alt 1`, `Ctrl 1` on
         /// macOS).
         ToggleCollections,
