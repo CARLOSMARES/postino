@@ -1,5 +1,5 @@
 title: Files and folders
-description: Every file Postino reads and writes, in your workspace and on your system: requests, environments, run history, settings, recent workspaces and logs.
+description: Every file Postino reads and writes, in your workspace and on your system: requests, environments, run history, settings, recent workspaces, window size and logs.
 ---
 <h1>Files and folders</h1>
 <p class="lead">Postino keeps your work in your workspace and its own state in your user folders. Nothing is stored anywhere else, and nothing is sent anywhere.</p>
@@ -47,6 +47,7 @@ description: Every file Postino reads and writes, in your workspace and on your 
         <tr><td><code>recent-workspaces.txt</code></td><td>The last ten workspaces you opened, one absolute path per line, most recent first.</td></tr>
         <tr><td><code>last-environments.toml</code></td><td>The active environment of each recent workspace, so it is selected again when you reopen it.</td></tr>
         <tr><td><code>last-version.txt</code></td><td>The last stable version that ran, so the <a href="interface.html#whats-new">What's new</a> tab opens once after an update. Delete it to see the tab again on the next start.</td></tr>
+        <tr><td><code>window.toml</code></td><td>The size of the window and whether it was maximized, saved when it closes. Postino opens with them the next time, centered and fitted to the display. Delete it to go back to the default size.</td></tr>
     </tbody>
 </table></div>
 

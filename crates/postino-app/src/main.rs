@@ -11,8 +11,10 @@ mod views;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::rc::Rc;
 
 use gpui_kit::component::Root;
 use gpui_kit::*;
@@ -30,6 +32,7 @@ use actions::{
     ToggleLoadTests, ToggleSourceControl, UndoRequestEdit,
 };
 use state::settings::ThemeChoice;
+use state::window::WindowState;
 use views::AppView;
 
 fn main() -> ExitCode {
@@ -114,8 +117,14 @@ fn main() -> ExitCode {
         bind_keys(cx);
         theme::install(cx, &settings);
 
-        // 1440x900 logical, capped to 90% of the display (see `window::options`).
-        let window_options = window::options(cx, &IDENTITY, window::WindowSizes::default());
+        // 1440x900 logical, capped to 90% of the display (see `window::options`), the first time;
+        // then the size it was closed with (#214).
+        let sizes = window::WindowSizes::default();
+        let mut window_options = window::options(cx, &IDENTITY, sizes);
+        let saved_window = state::window::load();
+        if let Some(saved) = saved_window {
+            window_options.window_bounds = Some(saved_window_bounds(&saved, sizes, cx));
+        }
 
         cx.spawn(async move |cx| {
             let opened = cx.open_window(window_options, move |window, cx| {
@@ -134,6 +143,7 @@ fn main() -> ExitCode {
                         cx,
                     )
                 });
+                remember_window_size(saved_window, &view, window, cx);
 
                 // Opens files the OS delivers. Sleeps on the queue, so an idle window does
                 // no work; files queued before this point are delivered right away.
@@ -173,6 +183,80 @@ fn main() -> ExitCode {
         .detach();
     });
     ExitCode::SUCCESS
+}
+
+/// Where a window with a saved size opens: centered, as the first time.
+fn saved_window_bounds(saved: &WindowState, sizes: window::WindowSizes, cx: &App) -> WindowBounds {
+    let visible = cx.primary_display().map(|display| display.visible_bounds());
+    let (width, height) = saved.fitted(
+        visible.map(|area| (f32::from(area.size.width), f32::from(area.size.height))),
+        sizes.min,
+    );
+    let size = size(px(width), px(height));
+    let bounds = match visible {
+        Some(area) => Bounds::centered_at(area.center(), size),
+        None => Bounds::new(point(px(0.0), px(0.0)), size),
+    };
+    if saved.maximized {
+        WindowBounds::Maximized(bounds)
+    } else {
+        WindowBounds::Windowed(bounds)
+    }
+}
+
+/// Keeps the window's last size in memory while it changes and saves it when the window closes,
+/// however it closes. Nothing runs while the window is not being resized.
+fn remember_window_size(
+    saved: Option<WindowState>,
+    view: &Entity<AppView>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    // On X11 gpui asks to maximize before the window is mapped, and the request is lost.
+    if saved.is_some_and(|saved| saved.maximized) && cx.compositor_name() == "X11" {
+        window.on_next_frame(|window, _| {
+            if !window.is_maximized() {
+                window.zoom_window();
+            }
+        });
+    }
+
+    let wayland = cx.compositor_name() == "Wayland";
+    let opened = reopening_size(wayland, window);
+    let last = Rc::new(Cell::new(saved.unwrap_or(WindowState {
+        width: opened.width.into(),
+        height: opened.height.into(),
+        maximized: false,
+    })));
+
+    let resized = last.clone();
+    view.update(cx, |_, cx| {
+        cx.observe_window_bounds(window, move |_, window, _| {
+            let mut state = resized.get();
+            state.maximized = window.is_maximized();
+            // A maximized or fullscreen window keeps the size it goes back to.
+            if !state.maximized && !window.is_fullscreen() {
+                let size = reopening_size(wayland, window);
+                state.width = size.width.into();
+                state.height = size.height.into();
+            }
+            resized.set(state);
+        })
+        .detach();
+    });
+    cx.on_window_closed(move |_, _| state::window::save(&last.get()))
+        .detach();
+}
+
+/// The size that opens the window as it is now, so it neither grows nor shrinks on every run. The
+/// shadow of the client side decorations counts differently: gpui adds it around the size a window
+/// opens with on X11, and takes it out of that size on Wayland. Elsewhere there is no shadow.
+fn reopening_size(wayland: bool, window: &Window) -> Size<Pixels> {
+    if wayland {
+        window.bounds().size
+    } else {
+        window.inner_window_bounds().get_bounds().size
+    }
 }
 
 /// Logs where and how Postino runs: the first lines of every session, and the ones a bug report
