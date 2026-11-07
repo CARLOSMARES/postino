@@ -170,6 +170,10 @@ The user guide is published at `postino.tanis.codes/docs/`. Its sources are in
 
 ## Design system
 
+The mockups live in an Artifact, not in the repository:
+https://claude.ai/artifact/UMVPDGsmh2aGAd5DzzgkM1 (its pages are under `project/`, listed in
+`project/compat.json`). A UI change is designed there first; read the page it names.
+
 Colors, metrics, typography and layout of both themes are in `docs/design-system.md`. Read it before
 changing any UI, and keep to its rules (colors from `cx.palette()`, sizes from `theme::metrics`).
 A change to a standard component, a shared token or a shared metric belongs in telaio (see
