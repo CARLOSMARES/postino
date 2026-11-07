@@ -37,6 +37,9 @@ description: Import Bruno collections, in .bru files or OpenCollection YAML, wit
 <h3>Step 3: Preview</h3>
 <p>The tree of requests, with a checkbox on each and what to know about it, and three counts: <strong>complete</strong>, <strong>with warnings</strong> and <strong>unsupported</strong>. Nothing has been written yet. The last button writes everything at once; if that fails, what the import created is removed. When some request needs a look, the last screen says how many and <strong>View report</strong> opens <code>.postino/import-report.md</code>, as for <a href="postman-import.html#the-report">Postman</a>.</p>
 
+<h2 id="updating">Updating an imported collection</h2>
+<p>Import the same collection again, after a <code>git pull</code> in its repository or from a new <code>.zip</code>, and the Preview step offers <strong>Update existing</strong> or <strong>Import as new collection</strong>. The collection is recognized by its name, the one in <code>bruno.json</code> or <code>opencollection.yml</code>, wherever its folder or <code>.zip</code> is. Use the wizard as usual, or the command palette's <strong>Update collection from Bruno…</strong>. The list is the one of an <a href="openapi-import.html#updating-an-imported-collection">OpenAPI update</a>: added, changed with what changed, and removed, with a checkbox for each. Changed requests keep their scripts, tests and the values you edited. Environments are left as they are. Loose request files, without <code>bruno.json</code> or <code>opencollection.yml</code>, name no collection and always import as new.</p>
+
 <h2 id="collections">Collections</h2>
 <div class="table"><table>
     <thead><tr><th>Bruno</th><th>Postino</th></tr></thead>

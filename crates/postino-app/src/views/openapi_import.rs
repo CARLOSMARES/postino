@@ -242,11 +242,7 @@ impl ImportWizard {
                 if found {
                     let source = match self.state.format {
                         ImportFormat::Postman => self.state.postman_source(),
-                        // Updating an imported Bruno collection is #223: nothing to find yet.
-                        ImportFormat::Bruno => ManifestSource {
-                            kind: "bruno".to_string(),
-                            ..ManifestSource::default()
-                        },
+                        ImportFormat::Bruno => self.state.bruno_source(),
                         ImportFormat::OpenApi => source,
                     };
                     // An earlier import of the same source turns the Preview into an update.

@@ -565,3 +565,8 @@ _version: 2
   es: "Entorno · %{variables}"
   gl: "Contorno · %{variables}"
   it: "Ambiente · %{variables}"
+"import.palette.update_bruno":
+  en: "Update collection from Bruno..."
+  es: "Actualizar colección desde Bruno..."
+  gl: "Actualizar colección desde Bruno..."
+  it: "Aggiorna raccolta da Bruno..."

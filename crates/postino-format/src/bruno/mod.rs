@@ -27,6 +27,10 @@ pub const BRUNO_JSON: &str = "bruno.json";
 /// The file at the root of an OpenCollection YAML collection.
 pub const OPENCOLLECTION_YML: &str = "opencollection.yml";
 
+/// The `kind` of a manifest source written by a Bruno import (#223). Its `location` is the
+/// collection's name, which identifies it wherever its folder or `.zip` is.
+pub const MANIFEST_KIND: &str = "bruno";
+
 /// The folder of a collection's environments.
 const ENVIRONMENTS: &str = "environments";
 
@@ -72,8 +76,23 @@ pub fn is_bruno_file(name: &str, text: &str) -> bool {
     }
     if name.ends_with(".bru") {
         let file = parse_bru(text);
-        return file.block("meta").is_some()
-            || file.blocks.iter().any(|block| block.name == "vars");
+        return file.blocks.iter().any(|block| {
+            matches!(
+                block.name.as_str(),
+                "meta"
+                    | "vars"
+                    | "get"
+                    | "post"
+                    | "put"
+                    | "delete"
+                    | "patch"
+                    | "options"
+                    | "head"
+                    | "connect"
+                    | "trace"
+                    | "http"
+            )
+        });
     }
     if name.ends_with(".yml") || name.ends_with(".yaml") {
         return parse_yaml(text).is_some_and(|value| {

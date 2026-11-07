@@ -1374,6 +1374,23 @@ impl Wizard {
         }
     }
 
+    /// The manifest source of a Bruno import (#223): the collection's name, which identifies it
+    /// wherever its folder or `.zip` is. Loose request files, with no `bruno.json` or
+    /// `opencollection.yml`, name no collection and cannot be told again later.
+    pub fn bruno_source(&self) -> ManifestSource {
+        let location = self
+            .bruno
+            .as_ref()
+            .filter(|bruno| bruno.has_root)
+            .map(|bruno| bruno.name.clone())
+            .unwrap_or_default();
+        ManifestSource {
+            kind: postino_format::bruno::MANIFEST_KIND.to_string(),
+            location,
+            branch: String::new(),
+        }
+    }
+
     /// The most serious thing to tell about the request `key`.
     pub fn issue_of(&self, key: &str) -> Option<&RequestIssue> {
         self.issues
@@ -2719,5 +2736,56 @@ paths:
         wizard.toggle_bruno_environment(0);
         wizard.bruno_colors = false;
         assert!(wizard.bruno_environment_colors().is_empty());
+    }
+
+    #[test]
+    fn a_bruno_collection_imported_before_is_found_and_diffed() {
+        let source_dir = tempfile::tempdir().expect("tempdir");
+        write_bruno_collection(source_dir.path());
+        let client = Client::new(SendOptions::default());
+        let workspace_dir = tempfile::tempdir().expect("tempdir");
+        let mut workspace =
+            postino_workspace::Workspace::open(workspace_dir.path()).expect("workspace");
+
+        // The first import.
+        let mut first = Wizard::new(ImportFormat::Bruno, SourceKind::Folder);
+        first.set_loaded(scan_folder(source_dir.path(), &client).expect("a folder"));
+        let source = first.bruno_source();
+        assert_eq!(
+            (source.kind.as_str(), source.location.as_str()),
+            ("bruno", "Shop")
+        );
+        first.rebuild("");
+        let origin = postino_workspace::ImportOrigin {
+            source: source.clone(),
+            date: "2026-11-07".to_string(),
+            options: first.options,
+        };
+        let plan = first.plan().expect("plan").clone();
+        workspace
+            .import_openapi(&plan, &|_| true, &origin)
+            .expect("import");
+
+        // The collection gets a request, and is read again from a .zip elsewhere: still found.
+        std::fs::write(
+            source_dir.path().join("users/List users.bru"),
+            "meta {\n  name: List users\n  seq: 2\n}\n\nget {\n  url: {{host}}/users\n}\n",
+        )
+        .expect("write");
+        let mut again = Wizard::new(ImportFormat::Bruno, SourceKind::Folder);
+        again.set_loaded(scan_folder(source_dir.path(), &client).expect("a folder"));
+        let found = find_existing(workspace.openapi_collections(), &again.bruno_source())
+            .expect("the same collection");
+        again.set_existing(Some(found));
+        again.rebuild("");
+        assert!(again.is_update());
+        let (added, changed, removed, unchanged) = again.change_counts();
+        assert_eq!((added, changed, removed, unchanged), (1, 0, 0, 1));
+
+        // Loose request files name no collection: never an update.
+        let loose = load_pasted("get {\n  url: /ping\n}\n").expect("a request");
+        let mut wizard = Wizard::new(ImportFormat::Bruno, SourceKind::Paste);
+        wizard.set_loaded(loose);
+        assert!(find_existing(workspace.openapi_collections(), &wizard.bruno_source()).is_none());
     }
 }

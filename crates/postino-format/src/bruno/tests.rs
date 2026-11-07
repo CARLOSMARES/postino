@@ -360,6 +360,7 @@ fn detection() {
     assert!(!is_collection_root("package.json"));
     assert!(is_bruno_file("x.bru", "meta {\n  name: X\n}\n"));
     assert!(is_bruno_file("dev.bru", "vars {\n  a: 1\n}\n"));
+    assert!(is_bruno_file("ping.bru", "get {\n  url: /ping\n}\n"));
     assert!(!is_bruno_file("x.bru", "random text"));
     assert!(is_bruno_file(
         "r.yml",

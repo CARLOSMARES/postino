@@ -30,6 +30,11 @@ with the docs on, plus Environment colors: each color is mapped to the nearest o
 named colors by hue (`EnvColor::nearest`) and written to `.postino/project.toml` after the
 import, for the environments the workspace has.
 
+Importing a collection already imported into the destination updates it (#223), as for Postman
+(#212): the manifest source is `kind = "bruno"` with the collection's name as `location`
+(`postino_format::bruno::MANIFEST_KIND`, `Wizard::bruno_source`), so it is found wherever the
+folder or `.zip` is. Loose request files have no name to match and always import as new.
+
 ## Files
 
 | Module | Role |

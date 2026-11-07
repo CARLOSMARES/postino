@@ -98,6 +98,9 @@ pub enum ActionId {
     ImportEnvironment,
     /// Opens the import wizard for Bruno, on its Folder source (#222).
     ImportBruno,
+    /// Opens the import wizard for Bruno, whose collection already imported offers to update it
+    /// (#223).
+    UpdateFromBruno,
     /// Opens the Settings modal.
     OpenSettings,
     /// Opens the keyboard shortcuts cheat sheet.
@@ -272,6 +275,11 @@ pub fn action_items() -> Vec<PaletteItem> {
             None,
         ),
         action_item(ActionId::ImportBruno, t!("import.palette.bruno"), None),
+        action_item(
+            ActionId::UpdateFromBruno,
+            t!("import.palette.update_bruno"),
+            None,
+        ),
         action_item(
             ActionId::UpdateFromPostman,
             t!("import.palette.update_postman"),
@@ -514,7 +522,7 @@ mod tests {
     #[test]
     fn action_items_cover_every_action_id() {
         let items = action_items();
-        assert_eq!(items.len(), 19);
+        assert_eq!(items.len(), 20);
         assert!(
             items
                 .iter()
