@@ -15,14 +15,19 @@
 //!
 //! The `semantic_diff` module compares two versions of a `.postino` file part by part (method and
 //! URL, headers, query, auth, body, scripts, docs) for the diff tab's "Request" mode.
+//! The `bruno` module imports Bruno collections, `.bru` or OpenCollection YAML, into the same plan
+//! as a Postman import (see `docs/bruno-import.md`).
+//!
 //! The `project` module reads and writes the workspace configuration file, `.postino/project.toml`.
 //! The `highlight` module colors `.postino`, `.env`, JSON and JavaScript text a line at a time for
 //! the diff tab.
 #![warn(missing_docs)]
 
 mod format;
+mod script_convert;
 mod semantic_diff;
 
+pub mod bruno;
 pub mod env;
 pub mod highlight;
 pub mod openapi;
