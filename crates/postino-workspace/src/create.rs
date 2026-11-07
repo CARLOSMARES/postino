@@ -53,8 +53,9 @@ pub enum NewWorkspaceContent {
     Empty,
 }
 
-/// Creates `root` (and its missing parents) as a new workspace folder holding `content` and a
-/// `.gitignore` (see [`GITIGNORE`]).
+/// Creates `root` (and its missing parents) as a new workspace folder holding `content`, a
+/// `.gitignore` (see [`GITIGNORE`]) and the workspace configuration file,
+/// `.postino/project.toml`.
 ///
 /// `root` may be missing or an empty directory (hidden files count as content). Fails without
 /// writing anything with [`WorkspaceError::NotEmpty`] when `root` is a directory with anything
@@ -83,6 +84,7 @@ pub fn create_workspace(root: &Path, content: NewWorkspaceContent) -> Result<(),
     if content == NewWorkspaceContent::Example {
         write_example(root)?;
     }
+    crate::project::write_new_project(root)?;
     atomic_write(&root.join(".gitignore"), GITIGNORE)
 }
 
@@ -152,7 +154,7 @@ mod tests {
 
         assert_eq!(
             names_in(temp.path()),
-            vec![".gitignore", "environments", "hello.postino"]
+            vec![".gitignore", ".postino", "environments", "hello.postino"]
         );
     }
 
@@ -194,14 +196,21 @@ mod tests {
     }
 
     #[test]
-    fn empty_content_creates_the_folder_with_only_the_gitignore() {
+    fn empty_content_creates_the_folder_with_only_the_gitignore_and_the_project_file() {
         let temp = tempfile::tempdir().expect("temp dir");
         let root = temp.path().join("imported");
 
         create_workspace(&root, NewWorkspaceContent::Empty).expect("create");
 
         assert!(root.is_dir());
-        assert_eq!(names_in(&root), vec![".gitignore"]);
+        assert_eq!(names_in(&root), vec![".gitignore", ".postino"]);
+        assert_eq!(
+            Workspace::open(&root)
+                .expect("open")
+                .load_project()
+                .expect("project"),
+            postino_format::project::ProjectConfig::default()
+        );
         assert_eq!(
             fs::read_to_string(root.join(".gitignore")).expect("read .gitignore"),
             GITIGNORE

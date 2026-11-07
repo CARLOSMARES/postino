@@ -289,6 +289,33 @@ present in both keeps its **position** from the base file but takes its **value*
 file; a key only in the local file is appended at the end, in the local file's order. At least one
 of the two files must exist for `load_environment` to succeed.
 
+### 8.1 Workspace configuration (`.postino/project.toml`)
+
+Settings that belong to the workspace and are shared through git, parsed by
+`crates/postino-format/src/project.rs` and read and written by `postino-workspace`'s
+`load_project` and `update_project`. A TOML file:
+
+```toml
+version = 1
+
+[environments]
+order = ["local", "dev", "staging", "prod"]
+
+[environments.colors]
+local = "teal"
+```
+
+- The file is **optional**. A workspace without it behaves as if it were empty, and opening a
+  workspace never creates it. It is written when Postino creates a workspace, and the first time
+  the user changes something it holds; following a rename or a delete of an environment only
+  updates a file that exists.
+- `version` is the format version, `1`.
+- `[environments]` holds the environment order (#216) and colors (#217); their rules are in the
+  user guide.
+- Keys Postino does not know are kept when it saves the file. Values of the wrong type are
+  ignored. A file that is not valid TOML is reported and never overwritten.
+- Keys are written sorted, so the same configuration always gives the same text.
+
 ## 9. Variable resolution
 
 `{{name}}` (whitespace inside the braces is allowed: `{{ name }}`) is replaced wherever

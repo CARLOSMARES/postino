@@ -76,4 +76,8 @@ pub enum WorkspaceError {
     /// A Postman collection or environment export could not be parsed.
     #[error(transparent)]
     Postman(#[from] postino_format::postman::PostmanError),
+
+    /// The workspace configuration file (`.postino/project.toml`) is not valid TOML.
+    #[error(transparent)]
+    Project(#[from] postino_format::project::ProjectError),
 }

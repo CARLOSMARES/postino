@@ -15,6 +15,7 @@
 //!
 //! The `semantic_diff` module compares two versions of a `.postino` file part by part (method and
 //! URL, headers, query, auth, body, scripts, docs) for the diff tab's "Request" mode.
+//! The `project` module reads and writes the workspace configuration file, `.postino/project.toml`.
 //! The `highlight` module colors `.postino`, `.env`, JSON and JavaScript text a line at a time for
 //! the diff tab.
 #![warn(missing_docs)]
@@ -26,6 +27,7 @@ pub mod env;
 pub mod highlight;
 pub mod openapi;
 pub mod postman;
+pub mod project;
 pub mod snippet;
 
 pub use format::{ParseError, ParseErrorKind, parse, serialize};

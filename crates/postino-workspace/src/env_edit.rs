@@ -8,10 +8,12 @@ use std::path::PathBuf;
 
 use postino_core::KeyValue;
 use postino_format::env::{self, EnvLine};
+use postino_format::project::ProjectConfig;
 
 use crate::ENVIRONMENTS_FOLDER;
 use crate::error::WorkspaceError;
 use crate::ids::validate_relative_path;
+use crate::project::ProjectWrite;
 use crate::sanitize::sanitize_file_name;
 use crate::workspace::{Workspace, atomic_write};
 
@@ -195,6 +197,7 @@ impl Workspace {
         for (from, to) in moves {
             fs::rename(&from, &to).map_err(|source| WorkspaceError::Io { path: from, source })?;
         }
+        self.follow_in_project(|config| config.rename_environment(old, new));
         Ok(())
     }
 
@@ -211,9 +214,21 @@ impl Workspace {
             }
         }
         if deleted {
+            self.follow_in_project(|config| config.remove_environment(name));
             Ok(())
         } else {
             Err(WorkspaceError::EnvironmentNotFound(name.to_string()))
+        }
+    }
+}
+
+impl Workspace {
+    /// Keeps `.postino/project.toml`, when it exists, in step with a rename or a delete that
+    /// already happened. A file that cannot be updated is only logged: the environment change
+    /// itself succeeded.
+    fn follow_in_project(&self, edit: impl FnOnce(&mut ProjectConfig)) {
+        if let Err(error) = self.update_project(ProjectWrite::IfExists, edit) {
+            log::warn!("cannot update the workspace configuration: {error}");
         }
     }
 }
