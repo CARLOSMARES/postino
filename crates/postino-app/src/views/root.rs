@@ -216,6 +216,9 @@ pub struct AppView {
     /// ([`Self::refresh_environments`]) so render never reads files. The environment picker and
     /// the command palette list these names too.
     pub(crate) env_rows: Vec<state::env_panel::EnvRow>,
+    /// Whether the color picker of the active environment tab is open (#217,
+    /// `views/env_color_picker.rs`).
+    pub(crate) env_color_picker_open: bool,
     /// The status bar's git branch (or short hash) of the open workspace, read when it opens and
     /// when the window gets the focus back ([`Self::refresh_git_branch`]), so render never reads
     /// `.git/HEAD`.
@@ -416,6 +419,7 @@ impl AppView {
             load_result_tasks: HashMap::new(),
             nav: state::navigation::NavState::default(),
             env_rows: Vec::new(),
+            env_color_picker_open: false,
             git_branch: None,
             git: Default::default(),
             git_tasks: Default::default(),

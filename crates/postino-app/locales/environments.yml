@@ -25,6 +25,81 @@ _version: 2
   es: "Mostrar en el explorador de archivos"
   gl: "Mostrar no explorador de ficheiros"
   it: "Mostra nel file manager"
+"environments.menu.color":
+  en: "Color…"
+  es: "Color…"
+  gl: "Cor…"
+  it: "Colore…"
+"environments.color.title":
+  en: "Color"
+  es: "Color"
+  gl: "Cor"
+  it: "Colore"
+"environments.color.tooltip":
+  en: "Color: %{color}"
+  es: "Color: %{color}"
+  gl: "Cor: %{color}"
+  it: "Colore: %{color}"
+"environments.color.automatic":
+  en: "Automatic"
+  es: "Automático"
+  gl: "Automática"
+  it: "Automatico"
+"environments.color.from_name":
+  en: "%{color}, from the name"
+  es: "%{color}, según el nombre"
+  gl: "%{color}, segundo o nome"
+  it: "%{color}, dal nome"
+"environments.color.saved_hint":
+  en: "Saved in .postino/project.toml, shared through git."
+  es: "Se guarda en .postino/project.toml y se comparte con git."
+  gl: "Gárdase en .postino/project.toml e compártese con git."
+  it: "Salvato in .postino/project.toml e condiviso con git."
+"environments.color.red":
+  en: "Red"
+  es: "Rojo"
+  gl: "Vermello"
+  it: "Rosso"
+"environments.color.orange":
+  en: "Orange"
+  es: "Naranja"
+  gl: "Laranxa"
+  it: "Arancione"
+"environments.color.amber":
+  en: "Amber"
+  es: "Ámbar"
+  gl: "Ámbar"
+  it: "Ambra"
+"environments.color.green":
+  en: "Green"
+  es: "Verde"
+  gl: "Verde"
+  it: "Verde"
+"environments.color.teal":
+  en: "Teal"
+  es: "Verde azulado"
+  gl: "Verde azulado"
+  it: "Verde acqua"
+"environments.color.blue":
+  en: "Blue"
+  es: "Azul"
+  gl: "Azul"
+  it: "Blu"
+"environments.color.violet":
+  en: "Violet"
+  es: "Violeta"
+  gl: "Violeta"
+  it: "Viola"
+"environments.color.pink":
+  en: "Pink"
+  es: "Rosa"
+  gl: "Rosa"
+  it: "Rosa"
+"environments.color.grey":
+  en: "Grey"
+  es: "Gris"
+  gl: "Gris"
+  it: "Grigio"
 "environments.menu.move_up":
   en: "Move up"
   es: "Subir"

@@ -6,36 +6,39 @@
 
 use postino_workspace::Workspace;
 
-use super::env_color::{EnvColor, env_color};
+use super::env_color::{EnvColor, EnvColors};
 
 /// One environment row of the panel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnvRow {
     /// The environment name (the file name without `.env`).
     pub name: String,
-    /// The dot color category, derived from the name.
+    /// The dot color: the chosen one, or the automatic one from the name.
     pub color: EnvColor,
     /// How many variables the environment has once `.local.env` is merged in. `0` when the
     /// files could not be read.
     pub var_count: usize,
 }
 
-/// Loads the rows of every environment of `workspace`, in the picker's order.
-pub fn load_env_rows(workspace: &Workspace) -> Vec<EnvRow> {
+/// Loads the rows of every environment of `workspace`, in the picker's order, with the colors
+/// the user chose for them.
+pub fn load_env_rows(workspace: &Workspace) -> (Vec<EnvRow>, EnvColors) {
     let names = workspace.list_environments().unwrap_or_default();
-    names
+    let colors = EnvColors::load(workspace, &names);
+    let rows = names
         .into_iter()
         .map(|name| {
             let var_count = workspace
                 .load_environment(&name)
                 .map_or(0, |environment| environment.variables.len());
             EnvRow {
-                color: env_color(&name),
+                color: colors.color(&name),
                 name,
                 var_count,
             }
         })
-        .collect()
+        .collect();
+    (rows, colors)
 }
 
 /// The environment order after dragging the one at `from` onto the row at `to` (past the end
@@ -174,19 +177,19 @@ mod tests {
             .expect("save");
         workspace.create_environment("local").expect("create");
 
-        let rows = load_env_rows(&workspace);
+        let (rows, _) = load_env_rows(&workspace);
 
         assert_eq!(
             rows,
             vec![
                 EnvRow {
                     name: "local".to_string(),
-                    color: EnvColor::Success,
+                    color: EnvColor::Green,
                     var_count: 0
                 },
                 EnvRow {
                     name: "staging".to_string(),
-                    color: EnvColor::Warning,
+                    color: EnvColor::Amber,
                     var_count: 3
                 },
             ]
@@ -197,6 +200,6 @@ mod tests {
     fn a_workspace_without_environments_has_no_rows() {
         let dir = tempfile::tempdir().expect("tempdir");
         let workspace = Workspace::open(dir.path()).expect("open");
-        assert!(load_env_rows(&workspace).is_empty());
+        assert!(load_env_rows(&workspace).0.is_empty());
     }
 }

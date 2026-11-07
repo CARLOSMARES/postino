@@ -8,6 +8,7 @@ pub mod command_palette;
 pub mod completion;
 pub mod components;
 pub mod define_variable;
+pub mod env_color_picker;
 pub mod env_editor;
 pub mod env_panel;
 pub mod env_picker;

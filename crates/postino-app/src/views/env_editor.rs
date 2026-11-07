@@ -22,7 +22,7 @@ use postino_core::KeyValue;
 use postino_workspace::EnvLayer;
 
 use crate::state::define_variable;
-use crate::state::env_color::env_color;
+use crate::state::env_color::EnvColor;
 use crate::state::env_edit::{
     EnvEditTab, EnvScope, EnvValidationError, EnvVarRow, RowNote, env_file_label,
 };
@@ -31,7 +31,7 @@ use crate::state::workspace_log::log_workspace_error;
 use crate::theme::metrics::{
     EDITABLE_TABLE_ROW_HEIGHT, INPUT_PADDING_X, MODAL_WIDTH_DEFAULT, RADIUS_MD, RADIUS_SM,
 };
-use crate::theme::{Palette, PaletteExt, PostinoColors};
+use crate::theme::{Palette, PaletteExt};
 use crate::views::components::NeutralButtonExt;
 use crate::views::components::{
     ConfirmDialog, EditableCell, EditableColumn, EditableRow, EditableTable, GhostButton,
@@ -39,6 +39,7 @@ use crate::views::components::{
     SecondaryButton, SegmentedControl, SegmentedItem, edit_menu, framed_dialog, modal_body,
     modal_footer, modal_header, open_confirm_dialog,
 };
+use crate::views::env_color_picker::color_picker;
 
 use super::root::AppView;
 
@@ -84,6 +85,7 @@ pub(crate) struct EnvEditorEntities {
 impl AppView {
     /// Opens the editor tab of the environment `name`, or activates it if it is already open.
     pub(crate) fn open_environment_tab(&mut self, name: String, cx: &mut Context<Self>) {
+        self.env_color_picker_open = false;
         let Some(workspace) = self.state.workspace.as_ref() else {
             return;
         };
@@ -691,6 +693,10 @@ impl AppView {
             up: position.is_some_and(|position| position > 0),
             down: position.is_some_and(|position| position + 1 < self.env_rows.len()),
         };
+        let color = EnvColorState {
+            chosen: self.state.env_colors.chosen(&edit.name),
+            picker_open: self.env_color_picker_open,
+        };
         let session: Vec<KeyValue> = if is_active {
             self.state.session_env.as_slice().to_vec()
         } else {
@@ -705,6 +711,7 @@ impl AppView {
                 reveal_path,
                 is_active,
                 moves,
+                color,
                 &weak,
                 &palette,
                 cx,
@@ -799,6 +806,14 @@ fn build_row_inputs(
     }
 }
 
+/// The color of the environment of a tab (#217): the chosen one (`None` when automatic) and
+/// whether its picker is open.
+#[derive(Clone, Copy)]
+struct EnvColorState {
+    chosen: Option<EnvColor>,
+    picker_open: bool,
+}
+
 /// Whether the environment of a tab can move up or down in the order (#216).
 #[derive(Clone, Copy)]
 struct EnvMoves {
@@ -813,6 +828,7 @@ fn render_header(
     reveal_path: Option<PathBuf>,
     is_active: bool,
     moves: EnvMoves,
+    color: EnvColorState,
     weak: &WeakEntity<AppView>,
     palette: &Palette,
     cx: &mut Context<AppView>,
@@ -885,9 +901,17 @@ fn render_header(
                                 weak.update(cx, |view, cx| view.move_environment(&name, up, cx));
                         })
                 };
+                let pick_color = {
+                    let weak = weak.clone();
+                    PopupMenuItem::new(t!("environments.menu.color")).on_click(move |_, _, cx| {
+                        let _ =
+                            weak.update(cx, |view, cx| view.set_env_color_picker_open(true, cx));
+                    })
+                };
                 let move_up = move_item(&t!("environments.menu.move_up"), true, moves.up);
                 let move_down = move_item(&t!("environments.menu.move_down"), false, moves.down);
-                menu.item(move_up)
+                menu.item(pick_color)
+                    .item(move_up)
                     .item(move_down)
                     .separator()
                     .item(rename)
@@ -908,13 +932,14 @@ fn render_header(
             h_flex()
                 .items_center()
                 .gap(px(10.0))
-                .child(
-                    div()
-                        .flex_none()
-                        .size(px(9.0))
-                        .rounded_full()
-                        .bg(palette.env_color(env_color(&name))),
-                )
+                .child(color_picker(
+                    &name,
+                    color.chosen,
+                    color.picker_open,
+                    weak,
+                    palette,
+                    cx,
+                ))
                 .child(
                     div()
                         .flex_1()

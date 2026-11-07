@@ -92,6 +92,9 @@ pub struct AppState {
     pub settings: Settings,
     /// The in-app updater: the downloaded update waiting for a restart, if any.
     pub update: update::UpdateState,
+    /// The colors the user chose for the environments (#217), read with the environment list
+    /// (`AppView::refresh_environments`), never in render.
+    pub env_colors: env_color::EnvColors,
 }
 
 impl AppState {
@@ -111,6 +114,7 @@ impl AppState {
         self.active_environment = None;
         self.environment = Arc::default();
         self.session_env = SessionEnv::new();
+        self.env_colors = env_color::EnvColors::default();
     }
 
     /// Makes `name` the active environment (`None` for "No environment") and loads its variables.

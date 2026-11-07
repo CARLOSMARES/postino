@@ -57,7 +57,9 @@ impl AppView {
         ];
         for (index, name) in environments.enumerate() {
             let is_active = active.as_deref() == Some(name.as_str());
-            let mut item = EnvMenuItem::named(name.clone()).active(is_active);
+            let mut item = EnvMenuItem::named(name.clone())
+                .color(self.state.env_colors.color(&name))
+                .active(is_active);
             if index < SHORTCUT_COUNT {
                 item = item.shortcut(format!("{MODIFIER_KEY}+{}", index + 1));
             }

@@ -49,6 +49,30 @@ const CHART_DARK: ChartTokens = ChartTokens {
 /// The colors that tell the requests of a load test apart in the Latency tab and the report, in
 /// order; a run with more requests cycles through them. From the design v3: in the dark theme
 /// the first two are `accent_text` and `info`, in the light one `accent` and a lighter `info`.
+/// The environment colors that are not palette tokens (#217), from the design's "Environment
+/// Colors" page. Red, amber, green, blue and violet reuse `danger`, `warning`, `success`, `info`
+/// and the PATCH color.
+struct EnvTokens {
+    orange: &'static str,
+    teal: &'static str,
+    pink: &'static str,
+    grey: &'static str,
+}
+
+const ENV_LIGHT: EnvTokens = EnvTokens {
+    orange: "#b4530f",
+    teal: "#0f7a74",
+    pink: "#b03a78",
+    grey: "#6b6f7c",
+};
+
+const ENV_DARK: EnvTokens = EnvTokens {
+    orange: "#f59a5b",
+    teal: "#4cc9c0",
+    pink: "#f3a2c6",
+    grey: "#a0a3ae",
+};
+
 const REQUESTS_LIGHT: [&str; 6] = [
     "#4f57d8", "#1c78b8", "#b0479a", "#3f8a3a", "#a8641c", "#7a4fd6",
 ];
@@ -90,7 +114,7 @@ pub trait PostinoColors {
     /// The foreground and background for a response status code, see [`status_tone`].
     fn status_colors(&self, status: Option<u16>) -> (Hsla, Hsla);
 
-    /// The dot color for an environment tier, from `state::env_color::EnvColor`. "No
+    /// The dot color of an environment, from `state::env_color::EnvColor`. "No
     /// environment" has no [`EnvColor`] of its own (`state::env_color`'s doc comment): views draw
     /// its hollow ring straight from `fg_subtle` instead of calling this. Used by the `EnvPill`
     /// and `EnvMenu` components.
@@ -132,10 +156,17 @@ impl PostinoColors for Palette {
     }
 
     fn env_color(&self, color: EnvColor) -> Hsla {
+        let tokens = if self.dark { &ENV_DARK } else { &ENV_LIGHT };
         match color {
-            EnvColor::Danger => self.danger,
-            EnvColor::Warning => self.warning,
-            EnvColor::Success => self.success,
+            EnvColor::Red => self.danger,
+            EnvColor::Orange => telaio_ui::palette::hex(tokens.orange),
+            EnvColor::Amber => self.warning,
+            EnvColor::Green => self.success,
+            EnvColor::Teal => telaio_ui::palette::hex(tokens.teal),
+            EnvColor::Blue => self.info,
+            EnvColor::Violet => self.method_color(&Method::Patch),
+            EnvColor::Pink => telaio_ui::palette::hex(tokens.pink),
+            EnvColor::Grey => telaio_ui::palette::hex(tokens.grey),
         }
     }
 
@@ -274,8 +305,14 @@ mod tests {
     #[test]
     fn env_color_maps_every_variant() {
         let palette = Palette::default_light();
-        assert_eq!(palette.env_color(EnvColor::Danger), palette.danger);
-        assert_eq!(palette.env_color(EnvColor::Warning), palette.warning);
-        assert_eq!(palette.env_color(EnvColor::Success), palette.success);
+        assert_eq!(palette.env_color(EnvColor::Red), palette.danger);
+        assert_eq!(palette.env_color(EnvColor::Amber), palette.warning);
+        assert_eq!(palette.env_color(EnvColor::Green), palette.success);
+        assert_eq!(palette.env_color(EnvColor::Blue), palette.info);
+        assert_eq!(to_hex(palette.env_color(EnvColor::Violet)), "#7a4fd6");
+        assert_eq!(to_hex(palette.env_color(EnvColor::Teal)), "#0f7a74");
+        let dark = Palette::default_dark();
+        assert_eq!(to_hex(dark.env_color(EnvColor::Orange)), "#f59a5b");
+        assert_eq!(to_hex(dark.env_color(EnvColor::Grey)), "#a0a3ae");
     }
 }

@@ -310,8 +310,10 @@ local = "teal"
   the user changes something it holds; following a rename or a delete of an environment only
   updates a file that exists.
 - `version` is the format version, `1`.
-- `[environments]` holds the environment order (#216) and colors (#217); their rules are in the
-  user guide.
+- `[environments]` holds `order`, the environment names in the order the user chose (#216),
+  and `[environments.colors]`, a color name per environment (#217): `red`, `orange`, `amber`,
+  `green`, `teal`, `blue`, `violet`, `pink` or `grey`. An environment without a color, or with a
+  name Postino does not know, uses the automatic color of its name.
 - Keys Postino does not know are kept when it saves the file. Values of the wrong type are
   ignored. A file that is not valid TOML is reported and never overwritten.
 - Keys are written sorted, so the same configuration always gives the same text.

@@ -15,7 +15,7 @@ use gpui_kit::*;
 use rust_i18n::t;
 
 use super::NeutralButtonExt;
-use crate::state::env_color::env_color;
+use crate::state::env_color::{EnvColor, auto_color};
 use crate::theme::metrics::{ENV_PILL_HEIGHT, MENU_DOT_COLUMN_WIDTH, MENU_ROW_HEIGHT, RADIUS_MD};
 use crate::theme::{PaletteExt, PostinoColors};
 
@@ -26,9 +26,10 @@ const TRIGGER_LABEL_MAX_WIDTH: f32 = 110.0;
 const MENU_LABEL_MAX_WIDTH: f32 = 360.0;
 
 /// One row of an [`EnvPill`]'s dropdown: `None` is "No environment" (a hollow ring), `Some(name)`
-/// is a named environment (a dot colored by [`env_color`]).
+/// is a named environment (a dot in its color, see [`EnvMenuItem::color`]).
 pub struct EnvMenuItem {
     name: Option<SharedString>,
+    color: Option<EnvColor>,
     active: bool,
     shortcut: Option<SharedString>,
     on_click: Option<MenuItemHandler>,
@@ -43,6 +44,7 @@ impl EnvMenuItem {
     pub fn none() -> Self {
         Self {
             name: None,
+            color: None,
             active: false,
             shortcut: None,
             on_click: None,
@@ -53,10 +55,24 @@ impl EnvMenuItem {
     pub fn named(name: impl Into<SharedString>) -> Self {
         Self {
             name: Some(name.into()),
+            color: None,
             active: false,
             shortcut: None,
             on_click: None,
         }
+    }
+
+    /// Sets the dot color of a named environment, the chosen or automatic one
+    /// (`state::env_color::EnvColors`). Without it, the automatic color of the name.
+    pub fn color(mut self, color: EnvColor) -> Self {
+        self.color = Some(color);
+        self
+    }
+
+    /// The dot color, `None` for "No environment".
+    fn dot_color(&self) -> Option<EnvColor> {
+        let name = self.name.as_deref()?;
+        Some(self.color.unwrap_or_else(|| auto_color(name)))
     }
 
     /// Marks this row as the active environment (shows a check instead of its dot/ring).
@@ -112,8 +128,8 @@ impl RenderOnce for EnvPill {
             .map(EnvMenuItem::label)
             .unwrap_or_else(|| t!("common.no_environment").into_owned().into());
         let trigger_dot = active
-            .and_then(|item| item.name.as_deref())
-            .map(|name| palette.env_color(env_color(name)));
+            .and_then(EnvMenuItem::dot_color)
+            .map(|color| palette.env_color(color));
 
         let mut trigger_dot_or_ring = div().flex_none().size(px(7.0)).rounded_full();
         trigger_dot_or_ring = match trigger_dot {
@@ -139,10 +155,7 @@ impl RenderOnce for EnvPill {
             .dropdown_caret(true)
             .dropdown_menu(move |mut menu, _, _| {
                 for item in &self.items {
-                    let color = item
-                        .name
-                        .as_deref()
-                        .map(|name| palette.env_color(env_color(name)));
+                    let color = item.dot_color().map(|color| palette.env_color(color));
                     let label = item.label();
                     let active = item.active;
                     let shortcut = item.shortcut.clone();

@@ -19,7 +19,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 use rust_i18n::t;
 
-use crate::state::env_color::env_color;
+use crate::state::env_color::EnvColor;
 use crate::state::env_panel::{load_env_rows, moved_by, moved_order};
 use crate::state::number::format_integer;
 use crate::state::workspace_log::log_workspace_error;
@@ -95,12 +95,14 @@ impl AppView {
     /// the workspace opens, an environment is created or one of its variables changes, and when
     /// the panel is opened.
     pub(crate) fn refresh_environments(&mut self) {
-        self.env_rows = self
+        let (rows, colors) = self
             .state
             .workspace
             .as_ref()
             .map(load_env_rows)
             .unwrap_or_default();
+        self.env_rows = rows;
+        self.state.env_colors = colors;
         self.state.reload_environment();
     }
 
@@ -269,7 +271,7 @@ impl AppView {
                     ("env-row", index),
                     weak.clone(),
                     Some(index),
-                    Some(row.name.clone()),
+                    Some((row.name.clone(), row.color)),
                     selected.as_deref() == Some(row.name.as_str()),
                     active.as_deref() == Some(row.name.as_str()),
                     Some(row.var_count),
@@ -434,7 +436,7 @@ fn env_row(
     id: impl Into<ElementId>,
     weak: WeakEntity<AppView>,
     index: Option<usize>,
-    name: Option<String>,
+    name: Option<(String, EnvColor)>,
     selected: bool,
     active: bool,
     var_count: Option<usize>,
@@ -443,11 +445,11 @@ fn env_row(
 ) -> AnyElement {
     let dot = div().flex_none().size(px(7.0)).rounded_full();
     let dot = match &name {
-        Some(name) => dot.bg(palette.env_color(env_color(name))),
+        Some((_, color)) => dot.bg(palette.env_color(*color)),
         None => dot.border_1().border_color(palette.fg_subtle),
     };
     let label = match &name {
-        Some(name) => name.clone(),
+        Some((name, _)) => name.clone(),
         None => t!("common.no_environment").into_owned(),
     };
     let accent = palette.accent;
@@ -455,10 +457,10 @@ fn env_row(
     let dragged = name
         .as_ref()
         .zip(index)
-        .map(|(name, index)| DraggedEnvironment {
+        .map(|((name, color), index)| DraggedEnvironment {
             index,
             name: SharedString::from(name.clone()),
-            color: palette.env_color(env_color(name)),
+            color: palette.env_color(*color),
         });
     let grip = match &dragged {
         Some(_) => div()
@@ -540,7 +542,7 @@ fn env_row(
             let _ = drop_weak.update(cx, |view, cx| view.reorder_environment(from, to, cx));
         })
         .on_click(move |_, _, cx| {
-            let name = name.clone();
+            let name = name.as_ref().map(|(name, _)| name.clone());
             let _ = weak.update(cx, |view, cx| match name {
                 Some(name) => view.open_environment_tab(name, cx),
                 None => view.select_environment(None, cx),

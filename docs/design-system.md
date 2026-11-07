@@ -20,7 +20,7 @@ default tokens are telaio's defaults. The rest is under `crates/postino-app/src/
 | Theme registration, live settings apply | `theme/mod.rs` (through `telaio::install`, `telaio::apply`) |
 | Standard widgets | telaio, `src/components/` |
 | Domain widgets (method badge, URL bar, env pill, ...) | `views/components/` (see the gallery: `POSTINO_OPEN=components`) |
-| Environment dot color rule | `state/env_color.rs` |
+| Environment colors and the automatic rule | `state/env_color.rs` |
 
 ## Rules
 
@@ -165,9 +165,13 @@ The values are CSS. gpui's `blur_radius` is the gaussian's standard deviation, h
 - Response status (`Palette::status_colors`): 2xx `success`, 3xx `info`, 4xx `warning`, 5xx
   `danger`. Background is the matching `*-subtle`. "Not sent" or a send failure is `fg_muted` on
   `hover`.
-- Environment dot (`state::env_color`), from the name, case-insensitive: contains `prod` is
-  `danger`; contains `stag`, `test`, `qa` or `uat` is `warning`; anything else is `success`. "No
-  environment" is a hollow ring in `fg_subtle`.
+- Environment dot (`state::env_color`, #217): one of nine named colors, the one the user chose
+  in `.postino/project.toml` or else the automatic one from the name, case-insensitive: contains
+  `prod` is red, contains `stag`, `test`, `qa` or `uat` is amber, anything else is green. Red,
+  amber, green and blue are `danger`, `warning`, `success` and `info`, violet is the PATCH
+  color, and orange, teal, pink and grey are Postino's own (`theme/palette.rs`, light / dark:
+  orange `#b4530f` / `#f59a5b`, teal `#0f7a74` / `#4cc9c0`, pink `#b03a78` / `#f3a2c6`, grey
+  `#6b6f7c` / `#a0a3ae`). "No environment" is a hollow ring in `fg_subtle`.
 - Tests tab count: `success` when all pass, `danger` otherwise.
 
 ### Load test chart

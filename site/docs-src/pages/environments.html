@@ -71,8 +71,8 @@ apiKey=sk_test_51H...
     <li>In the Environments panel, or in an environment's editor, choose <strong>Use this environment</strong>.</li>
 </ul>
 <p>The active environment of each workspace is remembered and selected again when you reopen it. It is stored in Postino's configuration, not in the workspace.</p>
-<h3>Environment colors</h3>
-<p>The dot next to an environment's name gives a hint of how careful you should be. It comes from the name, ignoring case:</p>
+<h3 id="colors">Environment colors</h3>
+<p>The dot next to an environment's name gives a hint of how careful you should be. Unless you choose one, its color is <strong>Automatic</strong>: it comes from the name, ignoring case:</p>
 <div class="table"><table>
     <thead><tr><th>Name contains</th><th>Dot</th><th>Examples</th></tr></thead>
     <tbody>
@@ -82,6 +82,8 @@ apiKey=sk_test_51H...
         <tr><td>No environment</td><td>Hollow ring</td><td></td></tr>
     </tbody>
 </table></div>
+<p>To choose another color, open the environment and click the dot next to its name, or choose <strong>Color…</strong> in its <strong>More actions</strong> menu. Pick one of the nine colors (red, orange, amber, green, teal, blue, violet, pink and grey), or <strong>Automatic</strong> to go back to the color of the name. The color shows everywhere the environment does: the panel, the editor, the environment picker and the command palette.</p>
+<p>The choice is saved in the <a href="files-and-folders.html#project-file">workspace configuration</a>, <code>.postino/project.toml</code>, under <code>[environments.colors]</code>, with the color's English name in lowercase (<code>prod = "violet"</code>), so everyone who uses the workspace sees the same colors. The file is created the first time you choose a color. A color name Postino does not know is ignored, and the environment keeps its automatic color.</p>
 
 <h2>Resolution order</h2>
 <p>When Postino replaces <code>{{name}}</code>, it looks in these layers and uses the first one that has the variable:</p>
@@ -114,6 +116,7 @@ apiKey=sk_test_51H...
 <h3>Environment actions</h3>
 <p>The <strong>More actions</strong> menu of the editor has:</p>
 <ul>
+    <li><strong>Color…</strong>, which opens the <a href="#colors">color picker</a>.</li>
     <li><strong>Move up</strong> and <strong>Move down</strong>, which move the environment one place in the <a href="#order">order</a>. <kbd>Alt</kbd> <kbd>↑</kbd> and <kbd>Alt</kbd> <kbd>↓</kbd> (<kbd>⌥</kbd> on macOS) do the same while the environment's tab is the active one.</li>
     <li><strong>Rename</strong>, which renames both files.</li>
     <li><strong>Reveal in file manager</strong>, which opens the <code>environments/</code> folder.</li>

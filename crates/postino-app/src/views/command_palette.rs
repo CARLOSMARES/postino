@@ -20,6 +20,7 @@ use gpui_kit::*;
 use postino_core::Method;
 use rust_i18n::t;
 
+use crate::state::env_color::EnvColor;
 use crate::state::openapi_import::SourceKind;
 use crate::state::palette::{self, ActionId, PaletteItem, PaletteItemKind};
 use crate::theme::Palette;
@@ -155,6 +156,7 @@ fn render_palette_content(
     }
 
     let active_environment = view.read(cx).state.active_environment.clone();
+    let env_colors = view.read(cx).state.env_colors.clone();
     let palette = cx.palette();
     let mono_font = cx.theme().mono_font_family.clone();
 
@@ -185,6 +187,10 @@ fn render_palette_content(
                 &item.kind,
                 PaletteItemKind::Environment(name) if name.as_deref() == active_environment.as_deref()
             );
+            let env_color = match &item.kind {
+                PaletteItemKind::Environment(Some(name)) => Some(env_colors.color(name)),
+                _ => None,
+            };
             let row_palette = palette.clone();
             let row_mono_font = mono_font.clone();
             group = group.item(CommandItem::new().child(move |_, _| {
@@ -192,6 +198,7 @@ fn render_palette_content(
                     &item,
                     &matched,
                     is_active_environment,
+                    env_color,
                     &row_palette,
                     row_mono_font.clone(),
                 )
@@ -278,10 +285,11 @@ fn render_item_row(
     item: &PaletteItem,
     matched: &[usize],
     is_active_environment: bool,
+    env_color: Option<EnvColor>,
     palette: &Palette,
     mono_font: SharedString,
 ) -> AnyElement {
-    let leading = render_leading(item, is_active_environment, palette);
+    let leading = render_leading(item, is_active_environment, env_color, palette);
     let label = highlighted_label(&item.label, matched, palette.accent_text);
 
     let mut row = h_flex()
@@ -304,10 +312,12 @@ fn render_item_row(
     row.into_any_element()
 }
 
-/// The leading marker of one row, per `item.kind`.
+/// The leading marker of one row, per `item.kind`. `env_color` is the color of a named
+/// environment's row.
 fn render_leading(
     item: &PaletteItem,
     is_active_environment: bool,
+    env_color: Option<EnvColor>,
     palette: &Palette,
 ) -> AnyElement {
     match &item.kind {
@@ -318,7 +328,7 @@ fn render_leading(
             Some(Ok(method)) => MethodBadge::inline(method).into_any_element(),
             _ => div().into_any_element(),
         },
-        PaletteItemKind::Environment(name) => {
+        PaletteItemKind::Environment(_) => {
             let mut leading = div().flex_none().w(px(14.0)).flex().justify_center();
             leading = if is_active_environment {
                 leading.child(
@@ -327,7 +337,7 @@ fn render_leading(
                         .text_color(palette.accent_text),
                 )
             } else {
-                match name.as_deref().map(crate::state::env_color::env_color) {
+                match env_color {
                     Some(color) => leading.child(
                         div()
                             .size(px(7.0))
