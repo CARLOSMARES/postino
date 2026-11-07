@@ -22,7 +22,7 @@ description: Import OpenAPI 3.1, 3.0 and Swagger 2.0 specs, YAML or JSON, from a
 </ul>
 
 <h2>Step 1: Source</h2>
-<p>The <strong>Format</strong> chips choose between OpenAPI and <a href="postman-import.html">Postman</a>, and what is read decides in the end: a Postman export switches the wizard to Postman. Five sources, chosen with the buttons below them:</p>
+<p>The <strong>Format</strong> chips choose between OpenAPI, <a href="postman-import.html">Postman</a> and <a href="bruno-import.html">Bruno</a>, and what is read decides in the end: a Postman export switches the wizard to Postman, a Bruno collection to Bruno. Five sources, chosen with the buttons below them:</p>
 <ul>
     <li><strong>File:</strong> drop a spec file on the dashed area, or click it to pick one. External references are read from the disk, relative to the file. A <a href="#backstage-catalogs"><code>catalog-info.yaml</code></a> brings in the specs it references.</li>
     <li><strong>URL:</strong> type the address of the spec and click <strong>Download</strong>, or press <kbd>Enter</kbd> to download it and go on. The download uses the same <a href="settings.html">TLS settings</a> as requests, and external references are fetched relative to the URL. Relative server URLs such as <code>/v2</code> are resolved against it too.</li>

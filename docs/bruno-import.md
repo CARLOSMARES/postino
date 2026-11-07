@@ -17,6 +17,19 @@ references for the formats are in usebruno/bruno: `packages/bruno-lang/v2/src/br
 `envToJson.js` for `.bru`, and `packages/bruno-converters/src/opencollection` for YAML (what
 Bruno writes; `body: { mode, json }`, an older form, is read too).
 
+## In the app
+
+The import wizard (`state/openapi_import.rs`, `views/openapi_import.rs`, #222) has a Bruno
+format next to OpenAPI and Postman, with the Folder, File and Paste sources. A folder is a Bruno
+collection when it has `bruno.json` or `opencollection.yml`; a collection one or two folders
+down is only taken when the folder has no spec or Postman export, so a repository with specs
+still imports them. A dropped folder reads like the Folder source, a `.zip` with a root file or a
+`.bru` file is read as a collection, and picking a root file reads its folder. The Destination
+block never offers to use a Bruno folder as the workspace. The options are a Postman import's,
+with the docs on, plus Environment colors: each color is mapped to the nearest of the nine
+named colors by hue (`EnvColor::nearest`) and written to `.postino/project.toml` after the
+import, for the environments the workspace has.
+
 ## Files
 
 | Module | Role |

@@ -71,6 +71,53 @@ impl EnvColor {
             .find(|color| color.key().eq_ignore_ascii_case(key.trim()))
     }
 
+    /// The color nearest to a CSS hex color (`#4caf50`, `#4CAF50`, `4caf50` or `#fff`), for the
+    /// colors other apps give their environments (a Bruno import). By hue, and grey for colors
+    /// with little saturation. `None` for text that is not a hex color.
+    pub fn nearest(hex: &str) -> Option<EnvColor> {
+        let digits = hex.trim().trim_start_matches('#');
+        let digits: String = match digits.len() {
+            3 => digits.chars().flat_map(|digit| [digit, digit]).collect(),
+            6 | 8 => digits[..6].to_string(),
+            _ => return None,
+        };
+        let channel = |at: usize| {
+            u8::from_str_radix(digits.get(at..at + 2)?, 16)
+                .ok()
+                .map(|value| f32::from(value) / 255.0)
+        };
+        let (red, green, blue) = (channel(0)?, channel(2)?, channel(4)?);
+        let max = red.max(green).max(blue);
+        let min = red.min(green).min(blue);
+        let lightness = (max + min) / 2.0;
+        let delta = max - min;
+        let saturation = if delta == 0.0 {
+            0.0
+        } else {
+            delta / (1.0 - (2.0 * lightness - 1.0).abs())
+        };
+        if saturation < 0.15 || delta < 0.08 {
+            return Some(EnvColor::Grey);
+        }
+        let hue = if max == red {
+            60.0 * ((green - blue) / delta).rem_euclid(6.0)
+        } else if max == green {
+            60.0 * ((blue - red) / delta + 2.0)
+        } else {
+            60.0 * ((red - green) / delta + 4.0)
+        };
+        Some(match hue {
+            hue if !(15.0..345.0).contains(&hue) => EnvColor::Red,
+            hue if hue < 38.0 => EnvColor::Orange,
+            hue if hue < 65.0 => EnvColor::Amber,
+            hue if hue < 160.0 => EnvColor::Green,
+            hue if hue < 195.0 => EnvColor::Teal,
+            hue if hue < 255.0 => EnvColor::Blue,
+            hue if hue < 310.0 => EnvColor::Violet,
+            _ => EnvColor::Pink,
+        })
+    }
+
     /// The translation key of the color's name, shown in the picker's tooltips.
     pub fn label_key(self) -> &'static str {
         match self {
@@ -188,6 +235,29 @@ mod tests {
         }
         assert_eq!(EnvColor::from_key(" Teal "), Some(EnvColor::Teal));
         assert_eq!(EnvColor::from_key("gray"), None);
+    }
+
+    #[test]
+    fn hex_colors_map_to_the_nearest_named_one() {
+        for (hex, color) in [
+            ("#f44336", EnvColor::Red),
+            ("#ff9800", EnvColor::Orange),
+            ("#FFC107", EnvColor::Amber),
+            ("#4CAF50", EnvColor::Green),
+            ("#009688", EnvColor::Teal),
+            ("2196f3", EnvColor::Blue),
+            ("#9c27b0", EnvColor::Violet),
+            ("#e91e63", EnvColor::Pink),
+            ("#9e9e9e", EnvColor::Grey),
+            ("#fff", EnvColor::Grey),
+            ("#000000", EnvColor::Grey),
+            ("#4caf50ff", EnvColor::Green),
+        ] {
+            assert_eq!(EnvColor::nearest(hex), Some(color), "{hex}");
+        }
+        assert_eq!(EnvColor::nearest("green"), None);
+        assert_eq!(EnvColor::nearest("#12"), None);
+        assert_eq!(EnvColor::nearest("#zzzzzz"), None);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! The "Import" dropdown in the sidebar's header. Both entries open the import wizard, which works
+//! The "Import" dropdown in the sidebar's header. Every entry opens the import wizard, which works
 //! with or without a workspace (`views/openapi_import.rs`).
 
 use gpui_kit::component::button::Button;
@@ -29,6 +29,7 @@ impl AppView {
             .dropdown_menu(move |menu, _, _| {
                 let openapi_weak = weak.clone();
                 let postman_weak = weak.clone();
+                let bruno_weak = weak.clone();
                 menu.item(
                     PopupMenuItem::new(t!("openapi.menu"))
                         .icon(Icon::new(gpui_kit::assets::IconName::FileCode))
@@ -47,6 +48,17 @@ impl AppView {
                         .on_click(move |_, window, cx| {
                             super::openapi_import::open_postman_wizard(
                                 postman_weak.clone(),
+                                window,
+                                cx,
+                            );
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(t!("import.menu_bruno"))
+                        .icon(Icon::new(gpui_kit::assets::IconName::FolderInput))
+                        .on_click(move |_, window, cx| {
+                            super::openapi_import::open_bruno_wizard(
+                                bruno_weak.clone(),
                                 window,
                                 cx,
                             );

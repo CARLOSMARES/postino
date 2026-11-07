@@ -50,6 +50,7 @@ NAV = [
         ("code-snippets.html", "Code snippets"),
         ("openapi-import.html", "Importing OpenAPI"),
         ("postman-import.html", "Importing from Postman"),
+        ("bruno-import.html", "Importing from Bruno"),
         ("git.html", "Working with git"),
     ]),
     ("Reference", [

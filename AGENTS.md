@@ -54,6 +54,10 @@ Expo/React Native conventions here.
 - Postman import (#210, #211, #212): Collection format v2.1 (v2.0 accepted when it parses the same),
   environment and globals exports, from files, pasted text, a folder or a `.zip`, through the import
   wizard OpenAPI uses. `pm.*` scripts are converted. See `docs/postman-import.md`.
+- Bruno import (#213, #221, #222): `.bru` and OpenCollection YAML, through the same wizard and
+  plan as Postman (`postino_format::bruno`). A Bruno folder never becomes the workspace, so `.bru`
+  and `.postino` files never mix. Collection and folder scripts are dropped with a warning. See
+  `docs/bruno-import.md`.
 - An import's destination is a block of the wizard (#208): the workspace is created when the user
   confirms, never before. `views/import_destination.rs`.
 - OpenAPI import (#201, #202): OpenAPI 3.1, 3.0 and Swagger 2.0, JSON or YAML (`serde_norway`),

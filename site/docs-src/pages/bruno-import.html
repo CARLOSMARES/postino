@@ -1,0 +1,78 @@
+title: Importing from Bruno
+description: Import Bruno collections, in .bru files or OpenCollection YAML, with their environments and scripts, into Postino as plain .postino and .env files.
+---
+<h1>Importing from Bruno</h1>
+<p class="lead">Bruno keeps collections as plain files too, so moving over is a folder away. The import wizard reads both of Bruno's formats, converts requests, environments, scripts, tests and assertions, shows what converts before writing anything, and leaves a report of what needs a look. Your Bruno folder is never changed.</p>
+
+<h2>What it reads</h2>
+<ul>
+    <li><strong>.bru files</strong>, Bruno's original format: a folder with <code>bruno.json</code>, one <code>.bru</code> file per request, <code>collection.bru</code>, <code>folder.bru</code> and <code>environments/*.bru</code>.</li>
+    <li><strong>OpenCollection YAML</strong>, the format Bruno 3.0 recommends for new collections: a folder with <code>opencollection.yml</code>, one <code>.yml</code> file per request, <code>folder.yml</code> and <code>environments/*.yml</code>.</li>
+</ul>
+<p>Both may be mixed in one collection, as Bruno allows while migrating.</p>
+
+<h2>Importing</h2>
+<p>Bruno goes through the same three step wizard as <a href="openapi-import.html">OpenAPI</a> and <a href="postman-import.html">Postman</a>. Open it from the sidebar's <strong>Import</strong> menu, <strong>Bruno (collection folder)…</strong>, or from <strong>Import Bruno collection…</strong> in the command palette. Dropping the collection's folder, or a <code>.zip</code> of it, anywhere on the window opens it too, on the Options step. It works with or without a workspace open.</p>
+<h3>Step 1: Source</h3>
+<ul>
+    <li><strong>Folder:</strong> the collection's folder, the one with <code>bruno.json</code> or <code>opencollection.yml</code>, or a folder that holds it a level or two down.</li>
+    <li><strong>File:</strong> a <code>.zip</code> of a collection, or loose <code>.bru</code> or <code>.yml</code> request files. Picking <code>bruno.json</code> or <code>opencollection.yml</code> reads its whole folder.</li>
+    <li><strong>Paste text:</strong> one <code>.bru</code> or <code>.yml</code> request.</li>
+</ul>
+<p>The format is detected from the content: a folder with <code>bruno.json</code> or <code>opencollection.yml</code> switches the wizard to Bruno. The list shows the collection, with its requests and folders, and each environment with its color and a checkbox; uncheck the ones you do not want.</p>
+<h3>Step 2: Options</h3>
+<p>The <strong>Destination</strong> block works <a href="openapi-import.html#where-the-collection-goes">as for OpenAPI</a>, except that the Bruno folder never becomes the workspace: the converted collection always goes to a Postino workspace, and the <code>.bru</code> files stay where they were. Then the name of the collection, the environments, and what to convert:</p>
+<div class="table"><table>
+    <thead><tr><th>Option</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+        <tr><td>Folders to subfolders</td><td>On</td><td>Keeps the folders. Off, every request goes at the top of the collection.</td></tr>
+        <tr><td>Collection and folder variables to every environment</td><td>On</td><td>Postino activates one environment at a time, so the variables of the collection and its folders are copied into each one. A value of the environment wins.</td></tr>
+        <tr><td>Secrets to .local.env</td><td>On</td><td>Bruno keeps the values of secret variables on each machine, not in the collection, so they are created empty in <code>.local.env</code> for you to fill in. Off, they are left out.</td></tr>
+        <tr><td>Authorization</td><td>On</td><td>Converts the auth of each request, inherited from its folder or the collection included. Off, requests have none.</td></tr>
+        <tr><td>Convert scripts, tests and assert</td><td>On</td><td>Converts scripts, tests, <code>assert</code> blocks and request variables. Off, scripts and tests are copied as comments.</td></tr>
+        <tr><td>Documentation</td><td>On</td><td>Writes the <code>docs</code> block in the Docs tab of each request.</td></tr>
+        <tr><td>Environment colors</td><td>On</td><td>Gives each environment the Postino color nearest to its Bruno color, in the <a href="files-and-folders.html#project-file">workspace configuration</a>. See <a href="environments.html#colors">Environment colors</a>.</td></tr>
+    </tbody>
+</table></div>
+<h3>Step 3: Preview</h3>
+<p>The tree of requests, with a checkbox on each and what to know about it, and three counts: <strong>complete</strong>, <strong>with warnings</strong> and <strong>unsupported</strong>. Nothing has been written yet. The last button writes everything at once; if that fails, what the import created is removed. When some request needs a look, the last screen says how many and <strong>View report</strong> opens <code>.postino/import-report.md</code>, as for <a href="postman-import.html#the-report">Postman</a>.</p>
+
+<h2 id="collections">Collections</h2>
+<div class="table"><table>
+    <thead><tr><th>Bruno</th><th>Postino</th></tr></thead>
+    <tbody>
+        <tr><td>Folder</td><td>Directory</td></tr>
+        <tr><td>Request</td><td>A <code>.postino</code> file named after the request</td></tr>
+        <tr><td>URL with <code>:id</code> path parameters</td><td>The URL, with the path parameters' values filled in</td></tr>
+        <tr><td>Query parameters, headers, disabled ones included</td><td>The query and the headers, disabled ones kept disabled</td></tr>
+        <tr><td>Headers of the collection and its folders</td><td>Copied into each request, the nearest one winning</td></tr>
+        <tr><td>JSON, text, XML, form URL encoded and multipart bodies</td><td>The same body types; a multipart file becomes an <code>@path</code> upload</td></tr>
+        <tr><td>GraphQL requests</td><td>A JSON body with the query and its variables, as GraphQL is sent over HTTP</td></tr>
+        <tr><td>Basic, Bearer and API key auth, and inherited auth</td><td>The same auth; OAuth 2.0 becomes a bearer token in <code>{{oauth2AccessToken}}</code>, left empty in <code>.local.env</code></td></tr>
+        <tr><td>Docs</td><td>The Docs tab</td></tr>
+    </tbody>
+</table></div>
+<p>Not imported, and reported: SPARQL and file bodies, auth types Postino does not have (Digest, NTLM, AWS Signature, WSSE, OAuth 1.0), gRPC and WebSocket requests, scripts and tests of the collection or a folder (only those of each request are imported), and the collection's <code>.env</code> file with the <code>process.env</code> values it feeds.</p>
+
+<h2>Scripts, tests and assertions</h2>
+<p>A request's pre-request variables and script become its <a href="scripting.html">pre-request script</a>. Its post-response variables, post-response script, assertions and tests become its post-response script, in the order Bruno runs them.</p>
+<ul>
+    <li><code>bru.getEnvVar</code>, <code>bru.setEnvVar</code>, <code>bru.getVar</code>, <code>bru.setVar</code> and their kin become <code>env.get</code> and <code>env.set</code>, and <code>bru.getRequestVar</code> becomes <code>vars.get</code>.</li>
+    <li><code>req.getUrl()</code>, <code>req.setHeader()</code>, <code>req.getBody()</code> and the other request methods become <code>req.url</code>, <code>req.headers.set()</code>, <code>req.body</code> and so on.</li>
+    <li><code>res.body</code> and <code>res.getBody()</code> become <code>res.json()</code>, since Bruno gives the parsed JSON and Postino the text. <code>res.getStatus()</code>, <code>res.getHeader()</code> and <code>res.getResponseTime()</code> become <code>res.status</code>, <code>res.headers.get()</code> and <code>res.timeMs</code>.</li>
+    <li><code>expect(...).to.equal(...)</code> and the other Chai assertions become Postino's matchers.</li>
+    <li>Each line of an <code>assert</code> block becomes a <code>test()</code> named after it: <code>res.status: eq 200</code> becomes <code>expect(res.status).toBe(200)</code>. Every Bruno operator converts, from <code>eq</code> to <code>isArray</code>.</li>
+    <li>Pre-request variables become <code>vars.set()</code>, and post-response variables such as <code>token: res.body.token</code> become <code>env.set("token", res.json().token)</code>.</li>
+</ul>
+<p>What has no equivalent stays as a comment, under the line <code>// Imported from Bruno. What could not be converted is commented out below.</code>: <code>bru.sendRequest</code>, <code>bru.runRequest</code>, <code>bru.setNextRequest</code> and the rest of the runner, cookies, <code>res.headers</code> read as an object, JSON schema assertions and <code>require</code>. Two differences remain after a conversion: Postino's variables are text, so a number stored with <code>bru.setVar</code> comes back as a string, and <code>env.set</code> keeps a value for the app session only, where <code>bru.setEnvVar</code> writes the environment file.</p>
+
+<h2>Environments</h2>
+<p>Each Bruno environment becomes <code>environments/&lt;name&gt;.env</code>. An environment that extends another gets the variables it does not set from it. Secret variables become empty entries of <code>environments/&lt;name&gt;.local.env</code>, out of git, and the report names them: fill them in before sending. With <strong>Environment colors</strong> on, each environment keeps a color close to the one it had in Bruno.</p>
+
+<h2>After importing</h2>
+<ul>
+    <li>Fill in the secrets in the <code>.local.env</code> files.</li>
+    <li>Look at the report: it lists every body, auth and script that needs your attention.</li>
+    <li>Activate an environment, send a few requests and compare with Bruno.</li>
+    <li>Commit the result.</li>
+</ul>

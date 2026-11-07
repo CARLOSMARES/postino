@@ -450,3 +450,118 @@ _version: 2
   es: "Usar la carpeta de origen como espacio de trabajo"
   gl: "Usar o cartafol de orixe como espazo de traballo"
   it: "Usa la cartella di origine come spazio di lavoro"
+"import.menu_bruno":
+  en: "Bruno (collection folder)..."
+  es: "Bruno (carpeta de una colección)..."
+  gl: "Bruno (cartafol dunha colección)..."
+  it: "Bruno (cartella di una raccolta)..."
+"import.palette.bruno":
+  en: "Import Bruno collection..."
+  es: "Importar colección de Bruno..."
+  gl: "Importar colección de Bruno..."
+  it: "Importa raccolta di Bruno..."
+"import.bruno.none_found":
+  en: "No Bruno collection found: pick the folder with bruno.json or opencollection.yml."
+  es: "No se encontró ninguna colección de Bruno: elige la carpeta con bruno.json u opencollection.yml."
+  gl: "Non se atopou ningunha colección de Bruno: escolle o cartafol con bruno.json ou opencollection.yml."
+  it: "Nessuna raccolta di Bruno trovata: scegli la cartella con bruno.json o opencollection.yml."
+"import.bruno.supported":
+  en: "Folder · .zip · .bru · OpenCollection .yml"
+  es: "Carpeta · .zip · .bru · .yml de OpenCollection"
+  gl: "Cartafol · .zip · .bru · .yml de OpenCollection"
+  it: "Cartella · .zip · .bru · .yml di OpenCollection"
+"import.bruno.paste_hint":
+  en: "One .bru or .yml request. For a whole collection, use Folder."
+  es: "Una petición .bru o .yml. Para una colección entera, usa Carpeta."
+  gl: "Unha petición .bru ou .yml. Para unha colección enteira, usa Cartafol."
+  it: "Una richiesta .bru o .yml. Per una raccolta intera, usa Cartella."
+"import.bruno.drop":
+  en: "Drop a .zip of a Bruno collection, or request files, or"
+  es: "Arrastra un .zip de una colección de Bruno, o peticiones sueltas, o"
+  gl: "Arrastra un .zip dunha colección de Bruno, ou peticións soltas, ou"
+  it: "Trascina uno .zip di una raccolta di Bruno, o richieste singole, oppure"
+"import.bruno.types":
+  en: ".zip · .bru · OpenCollection .yml"
+  es: ".zip · .bru · .yml de OpenCollection"
+  gl: ".zip · .bru · .yml de OpenCollection"
+  it: ".zip · .bru · .yml di OpenCollection"
+"import.bruno.folder_hint":
+  en: "The collection's folder, the one with bruno.json or opencollection.yml, or a folder that holds it."
+  es: "La carpeta de la colección, la que tiene bruno.json u opencollection.yml, o una carpeta que la contenga."
+  gl: "O cartafol da colección, o que ten bruno.json ou opencollection.yml, ou un cartafol que o conteña."
+  it: "La cartella della raccolta, quella con bruno.json o opencollection.yml, o una cartella che la contiene."
+"import.bruno.collection_meta":
+  en: "%{formats} · %{requests} · %{folders}"
+  es: "%{formats} · %{requests} · %{folders}"
+  gl: "%{formats} · %{requests} · %{folders}"
+  it: "%{formats} · %{requests} · %{folders}"
+"import.bruno.environment_meta":
+  en: "Environment · %{variables} · %{secrets}"
+  es: "Entorno · %{variables} · %{secrets}"
+  gl: "Contorno · %{variables} · %{secrets}"
+  it: "Ambiente · %{variables} · %{secrets}"
+"import.bruno.secrets.one":
+  en: "%{count} secret"
+  es: "%{count} secreto"
+  gl: "%{count} segredo"
+  it: "%{count} segreto"
+"import.bruno.secrets.other":
+  en: "%{count} secrets"
+  es: "%{count} secretos"
+  gl: "%{count} segredos"
+  it: "%{count} segreti"
+"import.bruno.env_note":
+  en: "Bruno keeps the values of secrets on each machine, not in the collection: they are created empty in .local.env."
+  es: "Bruno guarda los valores de los secretos en cada equipo, no en la colección: se crean vacíos en .local.env."
+  gl: "Bruno garda os valores dos segredos en cada equipo, non na colección: créanse baleiros en .local.env."
+  it: "Bruno conserva i valori dei segreti su ogni computer, non nella raccolta: vengono creati vuoti in .local.env."
+"import.bruno.opt_variables":
+  en: "Collection and folder variables to every environment"
+  es: "Variables de colección y carpeta a cada entorno"
+  gl: "Variables de colección e cartafol a cada contorno"
+  it: "Variabili di raccolta e cartella in ogni ambiente"
+"import.bruno.opt_variables_sub":
+  en: "The environment's value wins"
+  es: "Gana el valor del entorno"
+  gl: "Gaña o valor do contorno"
+  it: "Vince il valore dell'ambiente"
+"import.bruno.opt_secrets_sub":
+  en: "Bruno does not keep their values in the collection: they are created empty, to fill in. Off, they are left out"
+  es: "Bruno no guarda sus valores en la colección: se crean vacíos para rellenarlos. Sin marcar, no se importan"
+  gl: "Bruno non garda os seus valores na colección: créanse baleiros para enchelos. Sen marcar, non se importan"
+  it: "Bruno non conserva i loro valori nella raccolta: vengono creati vuoti da compilare. Se disattivato, non vengono importati"
+"import.bruno.opt_scripts":
+  en: "Convert scripts, tests and assert"
+  es: "Convertir scripts, tests y assert"
+  gl: "Converter scripts, tests e assert"
+  it: "Converti script, test e assert"
+"import.bruno.opt_scripts_sub":
+  en: "bru.*, req.* and res.*. What has no equivalent stays as a comment"
+  es: "bru.*, req.* y res.*. Lo que no tiene equivalente queda como comentario"
+  gl: "bru.*, req.* e res.*. O que non ten equivalente queda como comentario"
+  it: "bru.*, req.* e res.*. Ciò che non ha equivalente resta come commento"
+"import.bruno.opt_docs":
+  en: "Documentation"
+  es: "Documentación"
+  gl: "Documentación"
+  it: "Documentazione"
+"import.bruno.opt_docs_sub":
+  en: "The docs block, in the Docs tab of each request"
+  es: "El bloque docs, en la pestaña Docs de cada petición"
+  gl: "O bloque docs, na lapela Docs de cada petición"
+  it: "Il blocco docs, nella scheda Docs di ogni richiesta"
+"import.bruno.opt_colors":
+  en: "Environment colors"
+  es: "Colores de los entornos"
+  gl: "Cores dos contornos"
+  it: "Colori degli ambienti"
+"import.bruno.opt_colors_sub":
+  en: "To the nearest Postino color, in .postino/project.toml"
+  es: "Al color más parecido de Postino, en .postino/project.toml"
+  gl: "Á cor máis parecida de Postino, en .postino/project.toml"
+  it: "Al colore di Postino più vicino, in .postino/project.toml"
+"import.bruno.environment_variables":
+  en: "Environment · %{variables}"
+  es: "Entorno · %{variables}"
+  gl: "Contorno · %{variables}"
+  it: "Ambiente · %{variables}"

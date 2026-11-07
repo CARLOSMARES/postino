@@ -394,6 +394,7 @@ fn action_icon(action: ActionId) -> gpui_kit::assets::IconName {
         ActionId::ImportCollection | ActionId::ImportEnvironment | ActionId::UpdateFromPostman => {
             Lucide::Download
         }
+        ActionId::ImportBruno => Lucide::FolderInput,
         ActionId::OpenSettings => Lucide::Settings,
         ActionId::OpenShortcuts => Lucide::Keyboard,
         ActionId::NewWorkspace => Lucide::FolderPlus,
@@ -485,6 +486,7 @@ fn execute_action(weak: WeakEntity<AppView>, action: ActionId, window: &mut Wind
         ActionId::ImportEnvironment | ActionId::UpdateFromPostman => {
             super::openapi_import::open_postman_wizard(weak, window, cx);
         }
+        ActionId::ImportBruno => super::openapi_import::open_bruno_wizard(weak, window, cx),
         ActionId::OpenSettings => {
             let _ = weak.update(cx, |view, cx| view.open_settings(window, cx));
         }

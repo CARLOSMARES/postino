@@ -16,7 +16,7 @@ description: Every file Postino reads and writes, in your workspace and on your 
         <tr><td><code>.postino/project.toml</code></td><td>The workspace configuration, shared with everyone who uses the workspace. See <a href="#project-file">Workspace configuration</a>.</td><td>Yes</td></tr>
         <tr><td><code>.postino/runs/NNNN.json</code></td><td>Load test run history, one file per run: its configuration, thresholds and metrics.</td><td>Your choice</td></tr>
         <tr><td><code>.postino/runs/NNNN.samples.csv.gz</code></td><td>Every request of that run, compressed. See <a href="#load-test-runs">Load test runs</a>.</td><td>Your choice</td></tr>
-        <tr><td><code>.postino/import-report.md</code></td><td>The report of the last <a href="postman-import.html#the-report">Postman import</a> that had something to report.</td><td>Your choice</td></tr>
+        <tr><td><code>.postino/import-report.md</code></td><td>The report of the last <a href="postman-import.html#the-report">Postman</a> or <a href="bruno-import.html">Bruno</a> import that had something to report.</td><td>Your choice</td></tr>
         <tr><td><code>.gitignore</code></td><td>Written once, when Postino creates the workspace, together with <code>.postino/project.toml</code>. It ignores <code>*.local.env</code>, <code>.postino/runs/</code> and <code>.postino/import-report.md</code>.</td><td>Yes</td></tr>
     </tbody>
 </table></div>

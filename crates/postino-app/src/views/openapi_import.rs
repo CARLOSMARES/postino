@@ -24,11 +24,12 @@ use postino_format::openapi::{ChangeKind, Grouping, ManifestSource, PlanChange};
 use postino_format::postman::{IssueLevel, PostmanFormat};
 use postino_runner::Client;
 use postino_workspace::{
-    ImportOrigin, ImportReport, Workspace, WorkspaceError, openapi_collections_in,
+    ImportOrigin, ImportReport, ProjectWrite, Workspace, WorkspaceError, openapi_collections_in,
 };
 use telaio_ui::components::{CheckState, TextArea, TriCheckbox};
 use telaio_ui::metrics::CHECKBOX_HALO_PADDING;
 
+use crate::state::env_color::EnvColor;
 use crate::state::import_destination::{Target, slug};
 use crate::state::locale::plural;
 use crate::state::number::format_integer;
@@ -38,7 +39,7 @@ use crate::state::openapi_import::{
     scan_folder, source_kind_name, source_kind_of, sources_of,
 };
 use crate::theme::metrics::{RADIUS_MD, RADIUS_SM};
-use crate::theme::{Palette, PaletteExt};
+use crate::theme::{Palette, PaletteExt, PostinoColors};
 use crate::views::components::{
     GhostButton, IconButton, InlineMessage, InlineMessageKind, MethodBadge, ModalPlacement,
     PrimaryButton, SecondaryButton, SectionLabel, TreeRow, framed_dialog, text_field,
@@ -223,11 +224,14 @@ impl ImportWizard {
                     loaded.failures.len(),
                     loaded.catalogs.len()
                 );
-                let found = !loaded.specs.is_empty() || !loaded.postman.is_empty();
+                let found = !loaded.specs.is_empty()
+                    || !loaded.postman.is_empty()
+                    || loaded.bruno.is_some();
                 if !found && loaded.failures.is_empty() {
                     self.error = Some(match self.state.format {
                         ImportFormat::OpenApi => t!("openapi.none_found").into_owned(),
                         ImportFormat::Postman => t!("import.postman.none_found").into_owned(),
+                        ImportFormat::Bruno => t!("import.bruno.none_found").into_owned(),
                     });
                 }
                 self.checkout = checkout;
@@ -236,10 +240,14 @@ impl ImportWizard {
                 self.detected = detected.is_some();
                 self.name_pending = found;
                 if found {
-                    let source = if self.state.format == ImportFormat::Postman {
-                        self.state.postman_source()
-                    } else {
-                        source
+                    let source = match self.state.format {
+                        ImportFormat::Postman => self.state.postman_source(),
+                        // Updating an imported Bruno collection is #223: nothing to find yet.
+                        ImportFormat::Bruno => ManifestSource {
+                            kind: "bruno".to_string(),
+                            ..ManifestSource::default()
+                        },
+                        ImportFormat::OpenApi => source,
                     };
                     // An earlier import of the same source turns the Preview into an update.
                     let collections = self
@@ -376,6 +384,7 @@ impl ImportWizard {
                     ImportFormat::OpenApi => self.state.enabled_count() > 0,
                     ImportFormat::Postman => (0..self.state.postman_files().len())
                         .any(|index| self.state.is_postman_enabled(index)),
+                    ImportFormat::Bruno => self.state.bruno().is_some(),
                 };
                 something && self.resolved(cx).is_some()
             }
@@ -438,6 +447,11 @@ pub(crate) fn open_openapi_wizard(
 /// Opens the wizard on its first step for Postman.
 pub(crate) fn open_postman_wizard(view: WeakEntity<AppView>, window: &mut Window, cx: &mut App) {
     open_wizard(view, ImportFormat::Postman, SourceKind::File, window, cx);
+}
+
+/// Opens the wizard on its first step for Bruno, on its Folder source (#222).
+pub(crate) fn open_bruno_wizard(view: WeakEntity<AppView>, window: &mut Window, cx: &mut App) {
+    open_wizard(view, ImportFormat::Bruno, SourceKind::Folder, window, cx);
 }
 
 /// Opens the wizard on files dropped on the window (design 4e): they are read, the format is
@@ -645,10 +659,11 @@ fn primary_action(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut A
 /// Imports the selected requests into the destination and moves to the Done step. A failure
 /// stays on the Preview step with the reason.
 fn run_import(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut App) -> bool {
-    let (view, plan, excluded, origin, update, destination, issues) = {
+    let (view, plan, excluded, origin, update, destination, issues, colors) = {
         let wizard = wizard.read(cx);
+        let colors = wizard.state.bruno_environment_colors();
         // An update leaves the unchanged requests alone: there is nothing new to review.
-        let issues = if wizard.state.format == ImportFormat::Postman && !wizard.state.is_update() {
+        let issues = if wizard.state.is_collection_tool() && !wizard.state.is_update() {
             Some(wizard.state.selected_issues())
         } else {
             None
@@ -690,6 +705,7 @@ fn run_import(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut App) 
             update,
             destination,
             issues,
+            colors,
         )
     };
     let Some(app) = view.upgrade() else {
@@ -722,7 +738,10 @@ fn run_import(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut App) 
             .import_to(
                 &destination,
                 |workspace| {
-                    workspace.import_openapi(&plan, &|key| !excluded.contains(key), &origin)
+                    let report =
+                        workspace.import_openapi(&plan, &|key| !excluded.contains(key), &origin)?;
+                    write_environment_colors(workspace, &colors);
+                    Ok(report)
                 },
                 collection_folder,
                 window,
@@ -781,6 +800,30 @@ fn run_import(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut App) 
         cx.notify();
     });
     false
+}
+
+/// Saves the colors a Bruno import brought for its environments in `.postino/project.toml`
+/// (#217, #222), for the environments the workspace has now. A failure only loses the colors.
+fn write_environment_colors(workspace: &Workspace, colors: &[(String, EnvColor)]) {
+    if colors.is_empty() {
+        return;
+    }
+    let existing = workspace.list_environments().unwrap_or_default();
+    let colors: Vec<&(String, EnvColor)> = colors
+        .iter()
+        .filter(|(name, _)| existing.contains(name))
+        .collect();
+    if colors.is_empty() {
+        return;
+    }
+    let result = workspace.update_project(ProjectWrite::Create, |config| {
+        for (name, color) in &colors {
+            config.set_environment_color(name, Some(color.key()));
+        }
+    });
+    if let Err(error) = result {
+        crate::state::workspace_log::log_workspace_error("save the environment colors", &error);
+    }
 }
 
 /// Writes the import report to `.postino/import-report.md`. A failure only loses the report.
@@ -865,7 +908,9 @@ fn render_wizard(wizard: &Entity<ImportWizard>, window: &mut Window, cx: &mut Ap
     if wizard.read(cx).state.step == Step::Options {
         let (block, folder) = {
             let wizard = wizard.read(cx);
-            let folder = (wizard.state.source == SourceKind::Folder)
+            // A Bruno folder never becomes the workspace: .bru and .postino files would mix.
+            let folder = (wizard.state.source == SourceKind::Folder
+                && wizard.state.format != ImportFormat::Bruno)
                 .then(|| wizard.folder.clone())
                 .flatten();
             (wizard.destination.clone(), folder)
@@ -1067,6 +1112,7 @@ fn render_footer(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> 
         Step::Source => match state.state.format {
             ImportFormat::OpenApi => t!("openapi.supported").into(),
             ImportFormat::Postman => t!("import.postman.supported").into(),
+            ImportFormat::Bruno => t!("import.bruno.supported").into(),
         },
         Step::Options if state.state.specs().len() > 1 => t!(
             &telaio_app::language::plural_key("openapi.from_versions", state.state.enabled_count()),
@@ -1074,7 +1120,7 @@ fn render_footer(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> 
             count = format_integer(state.state.enabled_count() as u64)
         )
         .into(),
-        Step::Options if state.state.format == ImportFormat::Postman => {
+        Step::Options if state.state.is_collection_tool() => {
             plural("import.postman.requests", state.state.operation_count()).into()
         }
         Step::Options => plural("openapi.operations", state.state.operation_count()).into(),
@@ -1252,6 +1298,7 @@ fn render_source(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> 
                 match state.state.format {
                     ImportFormat::OpenApi => t!("openapi.paste.hint"),
                     ImportFormat::Postman => t!("import.postman.paste_hint"),
+                    ImportFormat::Bruno => t!("import.bruno.paste_hint"),
                 },
                 palette,
             ))
@@ -1309,6 +1356,11 @@ fn render_format_row(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App)
                     "import-format-postman",
                     ImportFormat::Postman,
                     "Postman".into(),
+                ))
+                .child(chip(
+                    "import-format-bruno",
+                    ImportFormat::Bruno,
+                    "Bruno".into(),
                 )),
         )
         .child(div().flex_1())
@@ -1386,6 +1438,7 @@ fn render_drop_zone(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) 
                         .child(match format {
                             ImportFormat::OpenApi => t!("openapi.file.drop"),
                             ImportFormat::Postman => t!("import.postman.drop"),
+                            ImportFormat::Bruno => t!("import.bruno.drop"),
                         })
                         .child(
                             div()
@@ -1397,6 +1450,7 @@ fn render_drop_zone(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) 
                     match format {
                         ImportFormat::OpenApi => t!("openapi.file.types"),
                         ImportFormat::Postman => t!("import.postman.types"),
+                        ImportFormat::Bruno => t!("import.bruno.types"),
                     },
                     palette,
                 ))
@@ -1591,6 +1645,7 @@ fn render_found(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> A
         )
         .children(specs)
         .children(render_postman_found(wizard, palette, cx))
+        .children(render_bruno_found(wizard, palette, cx))
         .children(failures)
         .into_any_element()
 }
@@ -1681,6 +1736,153 @@ fn render_postman_found(
     rows
 }
 
+/// The Bruno collection the source gave: the collection, then each environment with a checkbox
+/// and its color (#222).
+fn render_bruno_found(
+    wizard: &Entity<ImportWizard>,
+    palette: &Palette,
+    cx: &App,
+) -> Vec<AnyElement> {
+    let state = &wizard.read(cx).state;
+    let Some(bruno) = state.bruno() else {
+        return Vec::new();
+    };
+    let mono = cx.theme().mono_font_family.clone();
+    let source_line = |text: String| {
+        div()
+            .truncate()
+            .font_family(mono.clone())
+            .text_size(px(11.0))
+            .text_color(palette.fg_subtle)
+            .child(text)
+    };
+    let mut rows = vec![
+        h_flex()
+            .gap(px(10.0))
+            .px(px(12.0))
+            .py(px(10.0))
+            .rounded(px(RADIUS_MD))
+            .border_1()
+            .border_color(palette.border)
+            .child(
+                Icon::new(IconName::CircleCheck)
+                    .size(px(15.0))
+                    .text_color(palette.success),
+            )
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(2.0))
+                    .child(div().truncate().child(bruno.name.clone()))
+                    .when(!bruno.source.is_empty(), |column| {
+                        column.child(source_line(bruno.source.clone()))
+                    }),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(px(12.0))
+                    .text_color(palette.fg_muted)
+                    .child(
+                        t!(
+                            "import.bruno.collection_meta",
+                            formats = bruno.formats.as_str(),
+                            requests = plural("import.postman.requests", bruno.requests),
+                            folders = plural("import.postman.folders", bruno.folders)
+                        )
+                        .into_owned(),
+                    ),
+            )
+            .into_any_element(),
+    ];
+    for (index, environment) in bruno.environments.iter().enumerate() {
+        let weak = wizard.downgrade();
+        let box_weak = wizard.downgrade();
+        let checked = state.is_bruno_environment_enabled(index);
+        let toggle = move |weak: &WeakEntity<ImportWizard>, cx: &mut App| {
+            let _ = weak.update(cx, |wizard, cx| {
+                wizard.state.toggle_bruno_environment(index);
+                cx.notify();
+            });
+        };
+        rows.push(
+            h_flex()
+                .id(("import-bruno-env", index))
+                .gap(px(10.0))
+                .px(px(12.0))
+                .py(px(10.0))
+                .rounded(px(RADIUS_MD))
+                .border_1()
+                .border_color(palette.border)
+                .cursor_pointer()
+                .hover(|style| style.bg(palette.hover))
+                .active(|style| style.bg(palette.pressed))
+                .on_click(move |_, _, cx| toggle(&weak, cx))
+                .child(
+                    TriCheckbox::new(
+                        ("import-bruno-env-check", index),
+                        if checked {
+                            CheckState::Checked
+                        } else {
+                            CheckState::Unchecked
+                        },
+                    )
+                    .on_click(move |_, _, cx| toggle(&box_weak, cx)),
+                )
+                .child(environment_dot(environment.color, palette))
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .gap(px(2.0))
+                        .child(div().truncate().child(environment.name.clone()))
+                        .child(source_line(format!("environments/{}", environment.name))),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(px(12.0))
+                        .text_color(palette.fg_muted)
+                        .child(bruno_environment_meta(environment)),
+                )
+                .into_any_element(),
+        );
+    }
+    if bruno
+        .environments
+        .iter()
+        .any(|environment| environment.secrets > 0)
+    {
+        rows.push(hint(t!("import.bruno.env_note"), palette).into_any_element());
+    }
+    rows
+}
+
+/// The dot of a Bruno environment: its color, or a hollow ring when it has none.
+fn environment_dot(color: Option<EnvColor>, palette: &Palette) -> Div {
+    let dot = div().flex_none().size(px(8.0)).rounded_full();
+    match color {
+        Some(color) => dot.bg(palette.env_color(color)),
+        None => dot.border_1().border_color(palette.fg_subtle),
+    }
+}
+
+/// The right side of a Bruno environment's row: its variables, and how many are secret.
+fn bruno_environment_meta(environment: &crate::state::openapi_import::BrunoEnvironment) -> String {
+    let variables = plural("import.postman.variables", environment.variables);
+    if environment.secrets == 0 {
+        t!("import.bruno.environment_variables", variables = variables).into_owned()
+    } else {
+        t!(
+            "import.bruno.environment_meta",
+            variables = variables,
+            secrets = plural("import.bruno.secrets", environment.secrets)
+        )
+        .into_owned()
+    }
+}
+
 /// The right side of a Postman export's row.
 fn postman_meta(file: &crate::state::openapi_import::PostmanFile) -> String {
     let variables = plural("import.postman.variables", file.items);
@@ -1758,6 +1960,7 @@ fn render_folder_input(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &Ap
             match state.state.format {
                 ImportFormat::OpenApi => t!("openapi.folder.hint"),
                 ImportFormat::Postman => t!("import.postman.folder_hint"),
+                ImportFormat::Bruno => t!("import.bruno.folder_hint"),
             },
             palette,
         ))
@@ -1854,6 +2057,9 @@ fn render_options(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) ->
     let state = wizard.read(cx);
     if state.state.format == ImportFormat::Postman {
         return render_postman_options(wizard, palette, cx);
+    }
+    if state.state.format == ImportFormat::Bruno {
+        return render_bruno_options(wizard, palette, cx);
     }
     let options = state.state.options;
     let mono = cx.theme().mono_font_family.clone();
@@ -2072,7 +2278,7 @@ fn render_options(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) ->
         );
 
     let collection = if state.environments_only()
-        || !state.state.has_collection() && state.state.format == ImportFormat::Postman
+        || !state.state.has_collection() && state.state.is_collection_tool()
     {
         String::new()
     } else {
@@ -2232,8 +2438,183 @@ fn render_postman_options(
             described_checkbox(id, checked, label, sub, toggle, palette)
         }));
     let collection = if state.environments_only()
-        || !state.state.has_collection() && state.state.format == ImportFormat::Postman
+        || !state.state.has_collection() && state.state.is_collection_tool()
     {
+        String::new()
+    } else {
+        state.collection_name(cx)
+    };
+    v_flex()
+        .gap(px(18.0))
+        .children(
+            state
+                .destination
+                .as_ref()
+                .map(|block| render_destination(block, &collection, palette, cx)),
+        )
+        .child(
+            h_flex()
+                .items_start()
+                .gap(px(20.0))
+                .child(div().flex_1().min_w_0().child(left))
+                .child(div().flex_1().min_w_0().child(right)),
+        )
+        .into_any_element()
+}
+
+/// Step 2 of a Bruno import: the collection name and the environments on the left, what to
+/// convert on the right, as for Postman (#222).
+fn render_bruno_options(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &App) -> AnyElement {
+    let state = wizard.read(cx);
+    let options = state.state.bruno_options;
+    let environments: Vec<(usize, String, Option<EnvColor>, String)> = state
+        .state
+        .bruno()
+        .map(|bruno| {
+            bruno
+                .environments
+                .iter()
+                .enumerate()
+                .map(|(index, environment)| {
+                    (
+                        index,
+                        environment.name.clone(),
+                        environment.color,
+                        bruno_environment_meta(environment),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let left = v_flex()
+        .gap(px(16.0))
+        .when(state.state.has_collection(), |column| {
+            column.child(
+                v_flex()
+                    .gap(px(6.0))
+                    .child(field_label(t!("openapi.options.name"), palette))
+                    .child(text_field(&state.name, cx)),
+            )
+        })
+        .when(!environments.is_empty(), |column| {
+            column.child(
+                v_flex()
+                    .gap(px(4.0))
+                    .child(
+                        div()
+                            .pb(px(4.0))
+                            .child(SectionLabel::new(t!("import.postman.environments"))),
+                    )
+                    .children(environments.into_iter().map(|(index, name, color, meta)| {
+                        let weak = wizard.downgrade();
+                        h_flex()
+                            .gap(px(10.0))
+                            .py(px(5.0))
+                            .child(
+                                div().min_w_0().child(
+                                    telaio_ui::components::labelled_checkbox(
+                                        SharedString::from(format!(
+                                            "import-bruno-option-env-{index}"
+                                        )),
+                                        state.state.is_bruno_environment_enabled(index),
+                                        name,
+                                        palette,
+                                    )
+                                    .on_change(
+                                        move |_, _, cx| {
+                                            let _ = weak.update(cx, |wizard, cx| {
+                                                wizard.state.toggle_bruno_environment(index);
+                                                wizard.rebuild(cx);
+                                            });
+                                        },
+                                    ),
+                                ),
+                            )
+                            .child(environment_dot(color, palette))
+                            .child(div().flex_1())
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_size(px(12.0))
+                                    .text_color(palette.fg_subtle)
+                                    .child(meta),
+                            )
+                    })),
+            )
+        });
+    type Toggle = fn(&mut crate::state::openapi_import::Wizard) -> &mut bool;
+    let convert: [(&str, SharedString, SharedString, bool, Toggle); 7] = [
+        (
+            "bruno-folders",
+            t!("import.postman.opt_folders").into(),
+            t!("import.postman.opt_folders_sub").into(),
+            options.folders,
+            |w| &mut w.bruno_options.folders,
+        ),
+        (
+            "bruno-variables",
+            t!("import.bruno.opt_variables").into(),
+            t!("import.bruno.opt_variables_sub").into(),
+            options.variables,
+            |w| &mut w.bruno_options.variables,
+        ),
+        (
+            "bruno-secrets",
+            t!("import.postman.opt_secrets").into(),
+            t!("import.bruno.opt_secrets_sub").into(),
+            options.secrets,
+            |w| &mut w.bruno_options.secrets,
+        ),
+        (
+            "bruno-auth",
+            t!("import.postman.opt_auth").into(),
+            t!("import.postman.opt_auth_sub").into(),
+            options.auth,
+            |w| &mut w.bruno_options.auth,
+        ),
+        (
+            "bruno-scripts",
+            t!("import.bruno.opt_scripts").into(),
+            t!("import.bruno.opt_scripts_sub").into(),
+            options.scripts,
+            |w| &mut w.bruno_options.scripts,
+        ),
+        (
+            "bruno-docs",
+            t!("import.bruno.opt_docs").into(),
+            t!("import.bruno.opt_docs_sub").into(),
+            options.docs,
+            |w| &mut w.bruno_options.docs,
+        ),
+        (
+            "bruno-colors",
+            t!("import.bruno.opt_colors").into(),
+            t!("import.bruno.opt_colors_sub").into(),
+            state.state.bruno_colors,
+            |w| &mut w.bruno_colors,
+        ),
+    ];
+    let right = v_flex()
+        .gap(px(4.0))
+        .child(
+            div()
+                .pb(px(4.0))
+                .child(SectionLabel::new(t!("import.postman.convert"))),
+        )
+        .children(convert.into_iter().map(|(id, label, sub, checked, field)| {
+            let toggle = {
+                let weak = wizard.downgrade();
+                move |cx: &mut App| {
+                    let _ = weak.update(cx, |wizard, cx| {
+                        let flag = field(&mut wizard.state);
+                        *flag = !*flag;
+                        cx.notify();
+                    });
+                }
+            };
+            described_checkbox(id, checked, label, sub, toggle, palette)
+        }));
+    let collection = if state.environments_only() || !state.state.has_collection() {
         String::new()
     } else {
         state.collection_name(cx)
@@ -2712,7 +3093,7 @@ fn render_tree_preview(wizard: &Entity<ImportWizard>, palette: &Palette, cx: &Ap
             )
         })
         .when(
-            state.state.format == ImportFormat::Postman && !environments_only,
+            state.state.is_collection_tool() && !environments_only,
             |column| {
                 let (complete, warning, unsupported) = state.state.compat_counts();
                 let chip = |icon: IconName, bg: Hsla, fg: Hsla, text: String| {

@@ -1,5 +1,5 @@
-//! The import wizard's state (GitHub #201, #211): the format, the source, the loaded specs or
-//! Postman exports, the options, the plan they build and which of its requests are selected, plus
+//! The import wizard's state (GitHub #201, #211, #222): the format, the source, the loaded specs,
+//! Postman exports or Bruno collection, the options, the plan they build and which of its requests are selected, plus
 //! the rows of the preview tree.
 //! Plain Rust, so the wizard's logic is tested without a window; `views/openapi_import.rs`
 //! renders it.
@@ -14,6 +14,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use postino_core::{Method, ResolvedField, ResolvedRequest};
+use postino_format::bruno::{
+    BrunoFile, BrunoImport, is_bruno_file, is_collection_root, parse_bruno_collection,
+};
 use postino_format::openapi::{
     CatalogDefinition, ChangeKind, ImportOptions, ManifestSource, NoExternalRefs, OpenApiPlan,
     PlanChange, PlanFolder, RefLoader, Spec, SpecVersion, build_plan, diff_plan,
@@ -27,6 +30,7 @@ use postino_runner::Client;
 use postino_workspace::OpenApiCollection;
 use rust_i18n::t;
 
+use crate::state::env_color::EnvColor;
 use crate::state::number::format_integer;
 
 /// What the wizard imports. Detected from the content; the first step's chips preselect it.
@@ -36,6 +40,8 @@ pub enum ImportFormat {
     OpenApi,
     /// Postman collections, environments and globals.
     Postman,
+    /// A Bruno collection, `.bru` or OpenCollection YAML (#222).
+    Bruno,
 }
 
 /// The sources of `format`, in the order of the source tabs.
@@ -49,6 +55,8 @@ pub fn sources_of(format: ImportFormat) -> &'static [SourceKind] {
             SourceKind::Git,
         ],
         ImportFormat::Postman => &[SourceKind::File, SourceKind::Paste, SourceKind::Folder],
+        // A Bruno collection is a folder, so it comes first.
+        ImportFormat::Bruno => &[SourceKind::Folder, SourceKind::File, SourceKind::Paste],
     }
 }
 
@@ -169,6 +177,119 @@ fn count_folder(folder: &postino_format::postman::ImportFolder) -> (usize, usize
     )
 }
 
+/// One environment of a Bruno collection, as the wizard lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrunoEnvironment {
+    /// Its name.
+    pub name: String,
+    /// How many variables it has, secret ones included.
+    pub variables: usize,
+    /// How many of them are secret, whose values are not in the collection.
+    pub secrets: usize,
+    /// Its color in Bruno, mapped to the nearest of Postino's.
+    pub color: Option<EnvColor>,
+}
+
+/// A Bruno collection read by the wizard (#222).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrunoSource {
+    /// The collection name.
+    pub name: String,
+    /// Where it came from, as the source list shows it: its root file, or the file read.
+    pub source: String,
+    /// Its formats, as the source list shows them: `.bru`, `YAML` or both.
+    pub formats: String,
+    /// How many requests it has.
+    pub requests: usize,
+    /// How many folders it has.
+    pub folders: usize,
+    /// Its environments, in file order.
+    pub environments: Vec<BrunoEnvironment>,
+    /// Whether it has a root file (`bruno.json` or `opencollection.yml`) rather than being loose
+    /// request files.
+    pub has_root: bool,
+    /// The collection's files, parsed again when the options change.
+    files: Arc<[BrunoFile]>,
+    /// The name used when the collection names none.
+    fallback: String,
+}
+
+impl BrunoSource {
+    /// Reads the files of a collection. `None` when they are not one; `fallback` names it when
+    /// it names none, `shown` is how the source list names where it came from.
+    pub fn read(files: Vec<BrunoFile>, fallback: &str, shown: &str) -> Option<BrunoSource> {
+        let import = parse_bruno_collection(&files, fallback, &PostmanOptions::default()).ok()?;
+        let (requests, folders) = count_folder(&import.plan.root);
+        if requests == 0 && import.environments.is_empty() {
+            return None;
+        }
+        let ext = |file: &BrunoFile, extensions: &[&str]| {
+            extensions
+                .iter()
+                .any(|extension| file.path.to_ascii_lowercase().ends_with(extension))
+        };
+        let bru = files.iter().any(|file| ext(file, &[".bru"]));
+        let yaml = files.iter().any(|file| ext(file, &[".yml", ".yaml"]));
+        let formats = match (bru, yaml) {
+            (true, true) => ".bru, YAML",
+            (false, true) => "YAML",
+            _ => ".bru",
+        };
+        let root = files
+            .iter()
+            .map(|file| file.path.as_str())
+            .filter(|path| is_collection_root(path))
+            .min_by_key(|path| path.matches('/').count())
+            .map(str::to_string);
+        Some(BrunoSource {
+            name: import.plan.collection_name.clone(),
+            source: root.clone().unwrap_or_else(|| shown.to_string()),
+            formats: formats.to_string(),
+            requests,
+            folders,
+            environments: bruno_environments(&import),
+            has_root: root.is_some(),
+            files: Arc::from(files),
+            fallback: fallback.to_string(),
+        })
+    }
+
+    /// The collection with `options`.
+    fn parse(&self, options: &PostmanOptions) -> Option<BrunoImport> {
+        parse_bruno_collection(&self.files, &self.fallback, options).ok()
+    }
+
+    /// This collection and the files of `other`, read together: several request files picked
+    /// at once.
+    fn combined(&self, other: &BrunoSource) -> Option<BrunoSource> {
+        let files: Vec<BrunoFile> = self
+            .files
+            .iter()
+            .chain(other.files.iter())
+            .cloned()
+            .collect();
+        BrunoSource::read(files, &self.fallback, &self.source)
+    }
+}
+
+/// The environments of `import` as the wizard lists them.
+fn bruno_environments(import: &BrunoImport) -> Vec<BrunoEnvironment> {
+    import
+        .environments
+        .iter()
+        .map(|environment| BrunoEnvironment {
+            name: environment.name.clone(),
+            variables: environment.base.len() + environment.secret.len(),
+            secrets: environment.secret.len(),
+            color: import
+                .environment_colors
+                .iter()
+                .find(|(name, _)| *name == environment.name)
+                .and_then(|(_, hex)| EnvColor::nearest(hex)),
+        })
+        .collect()
+}
+
 /// A file that looked like a spec, or that a catalog pointed to, and could not be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Failure {
@@ -198,6 +319,8 @@ pub struct Loaded {
     pub catalogs: Vec<CatalogFile>,
     /// The Postman exports read.
     pub postman: Vec<PostmanFile>,
+    /// The Bruno collection read.
+    pub bruno: Option<BrunoSource>,
 }
 
 impl Loaded {
@@ -207,15 +330,25 @@ impl Loaded {
         self.failures.extend(other.failures);
         self.catalogs.extend(other.catalogs);
         self.postman.extend(other.postman);
+        self.bruno = match (self.bruno.take(), other.bruno) {
+            (Some(mine), Some(theirs)) => mine.combined(&theirs).or(Some(mine)),
+            (mine, theirs) => mine.or(theirs),
+        };
     }
 
     /// The format what was read is in: specs win, as they cannot be told apart from a Postman file
     /// of the same folder by anything else. `None` when nothing was read.
     pub fn format(&self) -> Option<ImportFormat> {
+        // A Bruno root file says what the folder is better than anything else.
+        if self.bruno.as_ref().is_some_and(|bruno| bruno.has_root) {
+            return Some(ImportFormat::Bruno);
+        }
         if !self.specs.is_empty() {
             Some(ImportFormat::OpenApi)
         } else if !self.postman.is_empty() {
             Some(ImportFormat::Postman)
+        } else if self.bruno.is_some() {
+            Some(ImportFormat::Bruno)
         } else {
             None
         }
@@ -255,6 +388,31 @@ pub fn load_path(path: &Path, shown: &str, client: &Client) -> Result<Loaded, St
     if let Some(found) = load_postman(&text, shown) {
         return found;
     }
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if is_bruno_file(&name, &text) {
+        // The root file of a collection stands for its whole folder.
+        if is_collection_root(&name)
+            && let Some(folder) = path.parent()
+        {
+            return load_bruno_folder(folder);
+        }
+        let stem = name
+            .rsplit_once('.')
+            .map_or(name.as_str(), |(stem, _)| stem);
+        let files = vec![BrunoFile {
+            path: name.clone(),
+            text,
+        }];
+        return BrunoSource::read(files, stem, shown)
+            .map(|bruno| Loaded {
+                bruno: Some(bruno),
+                ..Loaded::default()
+            })
+            .ok_or_else(|| "not a Bruno request".to_string());
+    }
     let location = canonical(path);
     if is_catalog_name(path) || (!looks_like_spec(&text) && looks_like_catalog(&text)) {
         return load_catalog(&text, &location, shown, client);
@@ -285,6 +443,9 @@ fn load_postman(text: &str, shown: &str) -> Option<Result<Loaded, String>> {
 fn load_zip(path: &Path) -> Result<Loaded, String> {
     let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|error| error.to_string())?;
+    if let Some(found) = load_bruno_zip(&mut archive, path)? {
+        return Ok(found);
+    }
     let mut loaded = Loaded::default();
     let mut left = MAX_ZIP_SIZE;
     for index in 0..archive.len() {
@@ -320,6 +481,157 @@ fn load_zip(path: &Path) -> Result<Loaded, String> {
     Ok(loaded)
 }
 
+/// The extensions of the files a Bruno collection is made of.
+const BRUNO_EXTENSIONS: &[&str] = &[".bru", ".yml", ".yaml", ".json", ".env"];
+
+/// Whether `name` is a file a Bruno collection is made of.
+fn is_bruno_part(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    BRUNO_EXTENSIONS
+        .iter()
+        .any(|extension| lower.ends_with(extension))
+}
+
+/// The Bruno collection of a `.zip`, `None` when it holds no `bruno.json`, `opencollection.yml`
+/// or `.bru` file.
+fn load_bruno_zip<R: std::io::Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    path: &Path,
+) -> Result<Option<Loaded>, String> {
+    let mut entries: Vec<(usize, String)> = Vec::new();
+    for index in 0..archive.len() {
+        let entry = archive.by_index(index).map_err(|error| error.to_string())?;
+        if entry.is_file() {
+            let name = entry
+                .name()
+                .map_err(|error| error.to_string())?
+                .into_owned();
+            entries.push((index, name));
+        }
+    }
+    let is_bruno = entries
+        .iter()
+        .any(|(_, name)| is_collection_root(name) || name.to_ascii_lowercase().ends_with(".bru"));
+    if !is_bruno {
+        return Ok(None);
+    }
+    let mut files = Vec::new();
+    let mut left = MAX_ZIP_SIZE;
+    for (index, name) in entries.into_iter().filter(|(_, name)| is_bruno_part(name)) {
+        let entry = archive.by_index(index).map_err(|error| error.to_string())?;
+        let mut text = String::new();
+        let Ok(read) = entry.take(left).read_to_string(&mut text) else {
+            continue;
+        };
+        left -= read as u64;
+        if left == 0 {
+            return Err("the .zip unpacks to more than 512 MB".to_string());
+        }
+        files.push(BrunoFile { path: name, text });
+    }
+    let stem = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let shown = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    Ok(BrunoSource::read(files, &stem, &shown).map(|bruno| Loaded {
+        bruno: Some(bruno),
+        ..Loaded::default()
+    }))
+}
+
+/// The folder at most this deep below the folder picked that holds a Bruno root file.
+const MAX_BRUNO_ROOT_DEPTH: usize = 2;
+
+/// The shallowest folder under `dir`, `dir` included, with `bruno.json` or `opencollection.yml`.
+fn find_bruno_root(dir: &Path, depth: usize) -> Option<PathBuf> {
+    let has_root = |folder: &Path| {
+        [
+            postino_format::bruno::BRUNO_JSON,
+            postino_format::bruno::OPENCOLLECTION_YML,
+        ]
+        .iter()
+        .any(|name| folder.join(name).is_file())
+    };
+    if has_root(dir) {
+        return Some(dir.to_path_buf());
+    }
+    if depth >= MAX_BRUNO_ROOT_DEPTH {
+        return None;
+    }
+    let mut children: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            !name.starts_with('.') && !SKIPPED_FOLDERS.contains(&name.as_str())
+        })
+        .map(|entry| entry.path())
+        .collect();
+    children.sort();
+    children
+        .iter()
+        .find_map(|child| find_bruno_root(child, depth + 1))
+}
+
+/// The files of a Bruno collection under `dir`, with paths relative to it.
+fn collect_bruno_files(root: &Path, dir: &Path, depth: usize, out: &mut Vec<BrunoFile>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut entries: Vec<_> = entries.flatten().collect();
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        if out.len() >= MAX_SCAN_FILES {
+            return;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        let path = entry.path();
+        if kind.is_dir() {
+            if depth < MAX_SCAN_DEPTH
+                && !name.starts_with('.')
+                && !SKIPPED_FOLDERS.contains(&name.as_str())
+            {
+                collect_bruno_files(root, &path, depth + 1, out);
+            }
+        } else if kind.is_file()
+            && is_bruno_part(&name)
+            && entry
+                .metadata()
+                .is_ok_and(|metadata| metadata.len() <= MAX_SCAN_FILE_SIZE)
+            && let Ok(text) = std::fs::read_to_string(&path)
+        {
+            out.push(BrunoFile {
+                path: relative_name(root, &path),
+                text,
+            });
+        }
+    }
+}
+
+/// Reads the Bruno collection whose root is `folder`.
+fn load_bruno_folder(folder: &Path) -> Result<Loaded, String> {
+    let mut files = Vec::new();
+    collect_bruno_files(folder, folder, 0, &mut files);
+    let name = folder
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    BrunoSource::read(files, &name, &name)
+        .map(|bruno| Loaded {
+            bruno: Some(bruno),
+            ..Loaded::default()
+        })
+        .ok_or_else(|| "the folder has no Bruno request".to_string())
+}
+
 /// Reads several files, what they give put together. A file that cannot be read is listed as a
 /// failure, so the others still count.
 pub fn load_files(paths: &[PathBuf], client: &Client) -> Result<Loaded, String> {
@@ -329,7 +641,13 @@ pub fn load_files(paths: &[PathBuf], client: &Client) -> Result<Loaded, String> 
             || path.display().to_string(),
             |name| name.to_string_lossy().into_owned(),
         );
-        match load_path(path, &shown, client) {
+        // A folder dropped on the window reads like the Folder source.
+        let found = if path.is_dir() {
+            scan_folder(path, client)
+        } else {
+            load_path(path, &shown, client)
+        };
+        match found {
             Ok(found) => loaded.merge(found),
             Err(error) if paths.len() > 1 => loaded.failures.push(Failure {
                 source: shown,
@@ -345,6 +663,20 @@ pub fn load_files(paths: &[PathBuf], client: &Client) -> Result<Loaded, String> 
 pub fn load_pasted(text: &str) -> Result<Loaded, String> {
     if let Some(found) = load_postman(text, "") {
         return found;
+    }
+    for name in ["request.bru", "request.yml"] {
+        if is_bruno_file(name, text) {
+            let files = vec![BrunoFile {
+                path: name.to_string(),
+                text: text.to_string(),
+            }];
+            if let Some(bruno) = BrunoSource::read(files, "request", "") {
+                return Ok(Loaded {
+                    bruno: Some(bruno),
+                    ..Loaded::default()
+                });
+            }
+        }
     }
     load_text(text).map(|spec| Loaded {
         specs: vec![spec],
@@ -426,6 +758,10 @@ fn load_catalog(
 /// catalog file. Hidden folders, dependency and build folders are skipped. A spec found both
 /// directly and through a catalog is read once.
 pub fn scan_folder(root: &Path, client: &Client) -> Result<Loaded, String> {
+    // A Bruno collection picked by its own folder.
+    if find_bruno_root(root, MAX_BRUNO_ROOT_DEPTH).is_some() {
+        return load_bruno_folder(root);
+    }
     let mut files = Vec::new();
     collect_files(root, 0, &mut files);
     files.sort();
@@ -475,6 +811,13 @@ pub fn scan_folder(root: &Path, client: &Client) -> Result<Loaded, String> {
                 error,
             }),
         }
+    }
+    // Nothing else found: a Bruno collection a folder or two below.
+    if loaded.specs.is_empty()
+        && loaded.postman.is_empty()
+        && let Some(bruno_root) = find_bruno_root(root, 0)
+    {
+        return load_bruno_folder(&bruno_root);
     }
     Ok(loaded)
 }
@@ -786,7 +1129,15 @@ pub struct Wizard {
     postman: Vec<PostmanFile>,
     /// Which of them are imported, one flag per file.
     postman_enabled: Vec<bool>,
-    /// What to tell about the requests of the plan, for a Postman import.
+    /// The Bruno collection loaded in the first step.
+    bruno: Option<BrunoSource>,
+    /// Which of its environments are imported, one flag per environment.
+    bruno_environments: Vec<bool>,
+    /// The "Convert" options of a Bruno import: Postman's, with the docs on.
+    pub bruno_options: PostmanOptions,
+    /// Whether a Bruno import writes the environments' colors to `.postino/project.toml`.
+    pub bruno_colors: bool,
+    /// What to tell about the requests of the plan, for a Postman or Bruno import.
     issues: HashMap<String, Vec<RequestIssue>>,
     /// See [`Self::compat_counts`].
     compat: (usize, usize, usize),
@@ -874,6 +1225,13 @@ impl Wizard {
             postman_options: PostmanOptions::default(),
             postman: Vec::new(),
             postman_enabled: Vec::new(),
+            bruno: None,
+            bruno_environments: Vec::new(),
+            bruno_options: PostmanOptions {
+                docs: true,
+                ..PostmanOptions::default()
+            },
+            bruno_colors: true,
             issues: HashMap::new(),
             compat: (0, 0, 0),
             specs: Vec::new(),
@@ -915,11 +1273,53 @@ impl Wizard {
             && self.failures.is_empty()
             && self.catalogs.is_empty()
             && self.postman.is_empty()
+            && self.bruno.is_none()
     }
 
     /// Whether the source gave something to import.
     pub fn has_content(&self) -> bool {
-        !self.specs.is_empty() || !self.postman.is_empty()
+        !self.specs.is_empty() || !self.postman.is_empty() || self.bruno.is_some()
+    }
+
+    /// Whether the wizard imports for a collection tool, Postman or Bruno, whose requests come
+    /// with issues to review, rather than OpenAPI specs.
+    pub fn is_collection_tool(&self) -> bool {
+        matches!(self.format, ImportFormat::Postman | ImportFormat::Bruno)
+    }
+
+    /// The Bruno collection loaded.
+    pub fn bruno(&self) -> Option<&BrunoSource> {
+        self.bruno.as_ref()
+    }
+
+    /// Whether the Bruno environment at `index` is imported.
+    pub fn is_bruno_environment_enabled(&self, index: usize) -> bool {
+        self.bruno_environments.get(index).copied().unwrap_or(false)
+    }
+
+    /// Flips the Bruno environment at `index`.
+    pub fn toggle_bruno_environment(&mut self, index: usize) {
+        if let Some(flag) = self.bruno_environments.get_mut(index) {
+            *flag = !*flag;
+        }
+    }
+
+    /// The colors to write to `.postino/project.toml` after a Bruno import: each imported
+    /// environment that has one, when the option is on.
+    pub fn bruno_environment_colors(&self) -> Vec<(String, EnvColor)> {
+        let Some(bruno) = &self.bruno else {
+            return Vec::new();
+        };
+        if !self.bruno_colors {
+            return Vec::new();
+        }
+        bruno
+            .environments
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| self.is_bruno_environment_enabled(*index))
+            .filter_map(|(_, environment)| Some((environment.name.clone(), environment.color?)))
+            .collect()
     }
 
     /// The Postman exports loaded.
@@ -941,6 +1341,9 @@ impl Wizard {
 
     /// Whether a Postman import has a collection to write.
     pub fn has_collection(&self) -> bool {
+        if self.format == ImportFormat::Bruno {
+            return self.bruno.as_ref().is_some_and(|bruno| bruno.requests > 0);
+        }
         self.enabled_postman()
             .any(|file| file.format == PostmanFormat::Collection)
     }
@@ -1038,6 +1441,14 @@ impl Wizard {
         if let Some(format) = format {
             self.format = format;
         }
+        if self.format == ImportFormat::Bruno {
+            self.bruno_environments = loaded
+                .bruno
+                .as_ref()
+                .map_or_else(Vec::new, |bruno| vec![true; bruno.environments.len()]);
+            self.bruno = loaded.bruno;
+            return;
+        }
         if self.format == ImportFormat::Postman {
             self.postman_enabled = vec![true; loaded.postman.len()];
             self.postman = loaded.postman;
@@ -1067,6 +1478,8 @@ impl Wizard {
         self.specs = specs;
         self.postman.clear();
         self.postman_enabled.clear();
+        self.bruno = None;
+        self.bruno_environments.clear();
         self.issues.clear();
         self.failures.clear();
         self.catalogs.clear();
@@ -1152,6 +1565,12 @@ impl Wizard {
 
     /// The name the collection gets unless the user types another one: the first spec's title.
     pub fn suggested_name(&self) -> String {
+        if self.format == ImportFormat::Bruno {
+            return self
+                .bruno
+                .as_ref()
+                .map_or_else(|| "Bruno".to_string(), |bruno| bruno.name.clone());
+        }
         if self.format == ImportFormat::Postman {
             let collections: Vec<&PostmanFile> = self
                 .postman
@@ -1256,6 +1675,10 @@ impl Wizard {
             self.rebuild_postman(name);
             return;
         }
+        if self.format == ImportFormat::Bruno {
+            self.rebuild_bruno(name);
+            return;
+        }
         let labels = self.version_labels();
         let versions: Vec<SpecVersion<'_>> = self
             .specs
@@ -1304,6 +1727,29 @@ impl Wizard {
             name.trim().to_string()
         };
         let built = build_postman_plan(&name, &collections, &environments, &globals, &options);
+        self.issues = built.issues;
+        self.set_plan(built.plan);
+    }
+
+    /// [`Self::rebuild`] for a Bruno import: the same plan as a Postman import's.
+    fn rebuild_bruno(&mut self, name: &str) {
+        let options = self.bruno_options;
+        let Some(import) = self.bruno.as_ref().and_then(|bruno| bruno.parse(&options)) else {
+            return;
+        };
+        let environments: Vec<ImportedEnvironment> = import
+            .environments
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| self.is_bruno_environment_enabled(*index))
+            .map(|(_, environment)| environment)
+            .collect();
+        let name = if name.trim().is_empty() {
+            self.suggested_name()
+        } else {
+            name.trim().to_string()
+        };
+        let built = build_postman_plan(&name, &[import.plan], &environments, &[], &options);
         self.issues = built.issues;
         self.set_plan(built.plan);
     }
@@ -1399,6 +1845,9 @@ impl Wizard {
 
     /// How many operations the loaded specs have.
     pub fn operation_count(&self) -> usize {
+        if self.format == ImportFormat::Bruno {
+            return self.bruno.as_ref().map_or(0, |bruno| bruno.requests);
+        }
         if self.format == ImportFormat::Postman {
             return self
                 .enabled_postman()
@@ -2125,5 +2574,150 @@ paths:
         drop(checkout);
         assert!(!path.exists(), "the checkout is deleted with its guard");
         assert!(clone_repository(&git, &url, "missing", &client).is_err());
+    }
+
+    /// A small Bruno collection on disk: `bruno.json`, a request in a folder and two
+    /// environments, one with a color and a secret.
+    fn write_bruno_collection(root: &Path) {
+        let users = root.join("users");
+        let environments = root.join("environments");
+        std::fs::create_dir_all(&users).expect("users");
+        std::fs::create_dir_all(&environments).expect("environments");
+        for (path, text) in [
+            (root.join("bruno.json"), r#"{"name": "Shop"}"#),
+            (
+                users.join("Get user.bru"),
+                "meta {\n  name: Get user\n  seq: 1\n}\n\nget {\n  url: {{host}}/users/1\n}\n\nassert {\n  $res.status: eq 200\n}\n",
+            ),
+            (
+                environments.join("Local.bru"),
+                "vars {\n  host: http://localhost\n}\nvars:secret [\n  token\n]\ncolor: #4CAF50\n",
+            ),
+            (
+                environments.join("Prod.bru"),
+                "vars {\n  host: https://shop.test\n}\n",
+            ),
+        ] {
+            std::fs::write(path, text).expect("write");
+        }
+    }
+
+    #[test]
+    fn a_bruno_folder_reads_as_a_bruno_collection() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_bruno_collection(dir.path());
+        let client = Client::new(SendOptions::default());
+        let loaded = scan_folder(dir.path(), &client).expect("a folder");
+        assert_eq!(loaded.format(), Some(ImportFormat::Bruno));
+        let bruno = loaded.bruno.as_ref().expect("bruno");
+        assert_eq!(bruno.name, "Shop");
+        assert_eq!(bruno.source, "bruno.json");
+        assert_eq!(bruno.formats, ".bru");
+        assert_eq!((bruno.requests, bruno.folders), (1, 1));
+        assert_eq!(
+            bruno.environments,
+            vec![
+                BrunoEnvironment {
+                    name: "Local".to_string(),
+                    variables: 2,
+                    secrets: 1,
+                    color: Some(EnvColor::Green),
+                },
+                BrunoEnvironment {
+                    name: "Prod".to_string(),
+                    variables: 1,
+                    secrets: 0,
+                    color: None,
+                },
+            ]
+        );
+
+        // The root file picked on its own stands for the folder, and so does a folder dropped
+        // on the window.
+        let picked = load_files(&[dir.path().join("bruno.json")], &client).expect("a file");
+        assert_eq!(picked.bruno.as_ref().map(|bruno| bruno.requests), Some(1));
+        let dropped = load_files(&[dir.path().to_path_buf()], &client).expect("a folder");
+        assert_eq!(dropped.format(), Some(ImportFormat::Bruno));
+    }
+
+    #[test]
+    fn specs_win_over_a_bruno_collection_further_down() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("openapi.yaml"), SPEC).expect("spec");
+        write_bruno_collection(&dir.path().join("tools/bruno"));
+        let client = Client::new(SendOptions::default());
+        let loaded = scan_folder(dir.path(), &client).expect("a folder");
+        assert_eq!(loaded.format(), Some(ImportFormat::OpenApi));
+        assert!(loaded.bruno.is_none());
+
+        let only_bruno = tempfile::tempdir().expect("tempdir");
+        write_bruno_collection(&only_bruno.path().join("api/bruno"));
+        let loaded = scan_folder(only_bruno.path(), &client).expect("a folder");
+        assert_eq!(loaded.format(), Some(ImportFormat::Bruno));
+    }
+
+    #[test]
+    fn a_bruno_zip_and_a_pasted_request() {
+        use std::io::Write as _;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("shop.zip");
+        let mut archive = zip::ZipWriter::new(std::fs::File::create(&path).expect("create"));
+        for (name, text) in [
+            ("shop/bruno.json", r#"{"name": "Shop"}"#),
+            ("shop/ping.bru", "get {\n  url: /ping\n}\n"),
+            ("shop/notes.txt", "x"),
+        ] {
+            archive
+                .start_file(name, zip::write::SimpleFileOptions::default())
+                .expect("entry");
+            archive.write_all(text.as_bytes()).expect("write");
+        }
+        archive.finish().expect("finish");
+        let loaded = load_files(&[path], &Client::new(SendOptions::default())).expect("a zip");
+        assert_eq!(loaded.format(), Some(ImportFormat::Bruno));
+        assert_eq!(loaded.bruno.as_ref().map(|bruno| bruno.requests), Some(1));
+
+        let pasted =
+            load_pasted("meta {\n  name: Ping\n}\n\nget {\n  url: /ping\n}\n").expect("a request");
+        let bruno = pasted.bruno.expect("bruno");
+        assert_eq!((bruno.requests, bruno.has_root), (1, false));
+        assert_eq!(pasted.specs.len(), 0);
+    }
+
+    #[test]
+    fn a_bruno_plan_with_environments_and_colors() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_bruno_collection(dir.path());
+        let loaded =
+            scan_folder(dir.path(), &Client::new(SendOptions::default())).expect("a folder");
+        let mut wizard = Wizard::new(ImportFormat::OpenApi, SourceKind::Folder);
+        wizard.set_loaded(loaded);
+        assert_eq!(wizard.format, ImportFormat::Bruno);
+        assert!(wizard.has_collection());
+        assert!(wizard.is_collection_tool());
+        assert_eq!(wizard.suggested_name(), "Shop");
+        assert!(wizard.bruno_options.docs);
+
+        wizard.rebuild("");
+        let plan = wizard.plan().expect("plan");
+        let names: Vec<&str> = plan
+            .environments
+            .iter()
+            .map(|environment| environment.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["Local", "Prod"]);
+        assert_eq!(wizard.total_count(), 1);
+        assert_eq!(
+            wizard.bruno_environment_colors(),
+            vec![("Local".to_string(), EnvColor::Green)]
+        );
+
+        wizard.toggle_bruno_environment(0);
+        wizard.rebuild("");
+        assert_eq!(wizard.plan().expect("plan").environments.len(), 1);
+        assert!(wizard.bruno_environment_colors().is_empty());
+        wizard.toggle_bruno_environment(0);
+        wizard.bruno_colors = false;
+        assert!(wizard.bruno_environment_colors().is_empty());
     }
 }

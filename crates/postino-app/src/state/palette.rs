@@ -96,6 +96,8 @@ pub enum ActionId {
     ImportCollection,
     /// Opens the import wizard for Postman.
     ImportEnvironment,
+    /// Opens the import wizard for Bruno, on its Folder source (#222).
+    ImportBruno,
     /// Opens the Settings modal.
     OpenSettings,
     /// Opens the keyboard shortcuts cheat sheet.
@@ -269,6 +271,7 @@ pub fn action_items() -> Vec<PaletteItem> {
             t!("shell.palette.import_environment"),
             None,
         ),
+        action_item(ActionId::ImportBruno, t!("import.palette.bruno"), None),
         action_item(
             ActionId::UpdateFromPostman,
             t!("import.palette.update_postman"),
@@ -511,7 +514,7 @@ mod tests {
     #[test]
     fn action_items_cover_every_action_id() {
         let items = action_items();
-        assert_eq!(items.len(), 18);
+        assert_eq!(items.len(), 19);
         assert!(
             items
                 .iter()
