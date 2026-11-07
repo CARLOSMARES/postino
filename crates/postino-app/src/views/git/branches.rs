@@ -18,7 +18,6 @@ use crate::state::git::BranchList;
 use crate::state::git_sync::GitOp;
 use crate::state::locale::plural;
 use crate::state::settings::save_settings;
-use crate::state::workspace_log::log_workspace_error;
 use crate::theme::{Palette, PaletteExt};
 use crate::views::components::{
     ConfirmDialog, ModalPlacement, PrimaryButton, SecondaryButton, framed_dialog, modal_body,
@@ -235,13 +234,7 @@ impl AppView {
 
     /// After a checkout or a branch change: the files on disk may be others, read them again.
     fn after_head_moved(&mut self, cx: &mut Context<Self>) {
-        if let Some(workspace) = self.state.workspace.as_mut()
-            && let Err(error) = workspace.rescan()
-        {
-            log_workspace_error("rescanning the workspace after a checkout", &error);
-        }
-        self.refresh_tree(cx);
-        self.refresh_environments();
+        self.reload_workspace_from_disk("a checkout", cx);
         self.refresh_git_branch();
         self.load_branches(cx);
     }

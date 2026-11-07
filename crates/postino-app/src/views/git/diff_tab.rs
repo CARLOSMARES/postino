@@ -359,7 +359,7 @@ impl AppView {
             ApplyTarget::WorkTree
         };
         if !self.state.settings.git_confirm_discard {
-            self.run_git_write(cx, move || repo.apply(&block, target, true));
+            self.run_git_work_tree_write(cx, move || repo.apply(&block, target, true));
             return;
         }
         let weak = cx.weak_entity();
@@ -375,7 +375,7 @@ impl AppView {
                 on_confirm: Rc::new(move |_, cx| {
                     let (repo, block) = (repo.clone(), block.clone());
                     let _ = weak.update(cx, |view, cx| {
-                        view.run_git_write(cx, move || repo.apply(&block, target, true));
+                        view.run_git_work_tree_write(cx, move || repo.apply(&block, target, true));
                     });
                 }),
             },

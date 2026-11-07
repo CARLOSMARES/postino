@@ -754,6 +754,19 @@ impl AppView {
         }
     }
 
+    /// Reads the workspace from disk again and shows it: the collections tree and the
+    /// environments, with the active one's variables. For changes Postino did not make itself
+    /// (a pull, a checkout, a git discard). `after` names the cause in the log.
+    pub(crate) fn reload_workspace_from_disk(&mut self, after: &str, cx: &mut Context<Self>) {
+        if let Some(workspace) = self.state.workspace.as_mut()
+            && let Err(error) = workspace.rescan()
+        {
+            log_workspace_error(&format!("rescanning the workspace after {after}"), &error);
+        }
+        self.refresh_tree(cx);
+        self.refresh_environments();
+    }
+
     /// Rebuilds the sidebar tree from the workspace's current on-disk state, respecting the
     /// sidebar filter's current text. Call after any operation that changes the workspace (save,
     /// create, rename, delete).

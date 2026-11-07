@@ -23,6 +23,26 @@ impl AppView {
         cx: &mut Context<Self>,
         write: impl FnOnce() -> Result<(), GitError> + Send + 'static,
     ) {
+        self.run_git_write_with(cx, false, write);
+    }
+
+    /// Like [`Self::run_git_write`], for a write that changes the files of the work tree (discard,
+    /// revert a block): the workspace is read again afterwards, so the collections tree and the
+    /// environments show what is on disk now (#218).
+    pub(crate) fn run_git_work_tree_write(
+        &mut self,
+        cx: &mut Context<Self>,
+        write: impl FnOnce() -> Result<(), GitError> + Send + 'static,
+    ) {
+        self.run_git_write_with(cx, true, write);
+    }
+
+    fn run_git_write_with(
+        &mut self,
+        cx: &mut Context<Self>,
+        work_tree: bool,
+        write: impl FnOnce() -> Result<(), GitError> + Send + 'static,
+    ) {
         let previous = self.git_tasks.write.take();
         self.git_tasks.write = Some(cx.spawn(async move |this, cx| {
             if let Some(previous) = previous {
@@ -33,6 +53,10 @@ impl AppView {
                 if let Err(error) = result {
                     log::warn!("git command failed: {error}");
                     view.workspace_error = Some(error.to_string());
+                }
+                // Even after a failure: a discard of several files may have changed some.
+                if work_tree {
+                    view.reload_workspace_from_disk("a git discard", cx);
                 }
                 view.refresh_git_status(cx);
                 cx.notify();

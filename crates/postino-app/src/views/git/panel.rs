@@ -111,7 +111,7 @@ impl AppView {
             return;
         }
         if !self.state.settings.git_confirm_discard {
-            self.run_git_write(cx, move || repo.discard(&paths));
+            self.run_git_work_tree_write(cx, move || repo.discard(&paths));
             return;
         }
         let weak = cx.weak_entity();
@@ -128,7 +128,7 @@ impl AppView {
                     let repo = repo.clone();
                     let paths = paths.clone();
                     let _ = weak.update(cx, |view, cx| {
-                        view.run_git_write(cx, move || repo.discard(&paths));
+                        view.run_git_work_tree_write(cx, move || repo.discard(&paths));
                     });
                 }),
             },
