@@ -1,0 +1,10 @@
+# Postino workspace configuration, shared with everyone who uses this workspace.
+# See https://postino.tanis.codes/docs/files-and-folders.html#project-file
+
+version = 1
+
+[environments]
+order = ["local", "secure"]
+
+[environments.colors]
+secure = "red"
